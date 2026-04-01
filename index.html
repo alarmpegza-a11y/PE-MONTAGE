@@ -3,8 +3,8 @@ import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
   signInAnonymously, 
-  onAuthStateChanged,
-  signInWithCustomToken
+  onAuthStateChanged, 
+  signInWithCustomToken 
 } from 'firebase/auth';
 import { 
   getFirestore, 
@@ -12,9 +12,9 @@ import {
   doc, 
   onSnapshot, 
   addDoc, 
-  updateDoc,
-  deleteDoc,
-  serverTimestamp
+  updateDoc, 
+  deleteDoc, 
+  serverTimestamp 
 } from 'firebase/firestore';
 import { 
   LayoutDashboard, 
@@ -25,98 +25,48 @@ import {
   ChevronRight, 
   LogOut, 
   Settings, 
-  FileText,
-  Clock,
-  ArrowLeft,
-  Users,
-  Trash2,
-  X
+  Clock, 
+  ArrowLeft, 
+  Users, 
+  Trash2, 
+  X 
 } from 'lucide-react';
 
-// --- FIREBASE INITIALISIERUNG ---
-// Falls du lokal arbeitest, ersetze diesen Block durch deine echten Firebase-Daten:
-/*
-const firebaseConfig = {
-  apiKey: "DEIN_API_KEY",
-  authDomain: "DEIN_PROJEKT.firebaseapp.com",
+// --- CONFIG ---
+const ADMIN_PIN = "0000";
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+  apiKey: "DEIN_KEY", 
+  authDomain: "DEIN_PROJEKT.firebaseapp.com", 
   projectId: "DEIN_PROJEKT",
-  storageBucket: "DEIN_PROJEKT.appspot.com",
-  messagingSenderId: "...",
+  storageBucket: "DEIN_PROJEKT.appspot.com", 
+  messagingSenderId: "...", 
   appId: "..."
 };
-*/
-const firebaseConfig = JSON.parse(__firebase_config);
+
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'montage-pro-live-v1';
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'montage-pro-v1';
 
-const ADMIN_PIN = "0000";
-
-// --- WIEDERVERWENDBARE UI KOMPONENTEN ---
-
-const Button = ({ children, onClick, variant = 'primary', className = '', disabled = false }) => {
-  const base = "px-4 py-3 rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50";
-  const variants = {
-    primary: "bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-900/20",
-    secondary: "bg-slate-800 text-slate-200 hover:bg-slate-700",
-    danger: "bg-red-600 text-white hover:bg-red-700",
-    success: "bg-emerald-600 text-white hover:bg-emerald-700",
-    ghost: "bg-transparent text-slate-400 hover:text-white"
-  };
-  return (
-    <button disabled={disabled} onClick={onClick} className={`${base} ${variants[variant]} ${className}`}>
-      {children}
-    </button>
-  );
-};
-
-const Card = ({ children, className = "" }) => (
-  <div className={`bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-xl ${className}`}>
-    {children}
+// --- UI COMPONENTS ---
+const ProgressBar = ({ curr, total }) => (
+  <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden mt-1">
+    <div 
+      className="bg-blue-500 h-full transition-all duration-500" 
+      style={{ width: `${(curr / total * 100) || 0}%` }} 
+    />
   </div>
 );
 
-const ProgressBar = ({ current, total }) => {
-  const percent = Math.min(Math.round((current / total) * 100), 100) || 0;
-  return (
-    <div className="w-full">
-      <div className="flex justify-between text-xs mb-1 text-slate-400">
-        <span>Fortschritt</span>
-        <span>{percent}% ({current}/{total})</span>
-      </div>
-      <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
-        <div 
-          className="bg-blue-500 h-full transition-all duration-500 ease-out" 
-          style={{ width: `${percent}%` }} 
-        />
-      </div>
-    </div>
-  );
-};
-
-// --- HAUPT-KOMPONENTE ---
-
 export default function App() {
-  // App State
-  const [user, setUser] = useState(null); 
-  const [currentUser, setCurrentUser] = useState(null); 
-  const [view, setView] = useState('login'); 
-  const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState("");
+  const [user, setUser] = useState(null);
+  const [view, setView] = useState('login');
   const [pin, setPin] = useState("");
+  const [data, setData] = useState({ projects: [], objects: [], workers: [], logs: [] });
+  const [selection, setSelection] = useState({ project: null, object: null });
+  const [authReady, setAuthReady] = useState(false);
 
-  // Daten State
-  const [projects, setProjects] = useState([]);
-  const [objects, setObjects] = useState([]);
-  const [workers, setWorkers] = useState([]);
-  const [logs, setLogs] = useState([]);
-  
-  // Selektions State
-  const [selectedProject, setSelectedProject] = useState(null);
-  const [selectedObject, setSelectedObject] = useState(null);
-
-  // 1. Authentifizierung beim Start
+  // 1. Authentifizierung initialisieren (Regel 3 beachten)
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -126,279 +76,220 @@ export default function App() {
           await signInAnonymously(auth);
         }
       } catch (err) {
-        console.error("Auth Fehler:", err);
-      } finally {
-        setLoading(false);
+        console.error("Auth-Fehler:", err);
       }
     };
+    
     initAuth();
-    return onAuthStateChanged(auth, (u) => setUser(u));
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      if (u) setAuthReady(true);
+    });
+    return () => unsubscribe();
   }, []);
 
-  // 2. Echtzeit-Daten-Listener
+  // 2. Daten-Listener (Nur wenn user vorhanden ist)
   useEffect(() => {
-    if (!user) return;
+    if (!user || !authReady) return;
 
-    const path = (coll) => collection(db, 'artifacts', appId, 'public', 'data', coll);
+    const path = (n) => collection(db, 'artifacts', appId, 'public', 'data', n);
+    
+    // Snapshot-Listener mit Error-Handling
+    const unsub = [
+      onSnapshot(path('projects'), 
+        s => setData(prev => ({ ...prev, projects: s.docs.map(d => ({ id: d.id, ...d.data() })) })),
+        e => console.error("Firestore Fehler (Projekte):", e)
+      ),
+      onSnapshot(path('objects'), 
+        s => setData(prev => ({ ...prev, objects: s.docs.map(d => ({ id: d.id, ...d.data() })) })),
+        e => console.error("Firestore Fehler (Objekte):", e)
+      ),
+      onSnapshot(path('users'), 
+        s => setData(prev => ({ ...prev, workers: s.docs.map(d => ({ id: d.id, ...d.data() })) })),
+        e => console.error("Firestore Fehler (Nutzer):", e)
+      ),
+      onSnapshot(path('logs'), 
+        s => setData(prev => ({ ...prev, logs: s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.timestamp - a.timestamp) })),
+        e => console.error("Firestore Fehler (Logs):", e)
+      )
+    ];
 
-    const unsubP = onSnapshot(path('projects'), (s) => setProjects(s.docs.map(d => ({id: d.id, ...d.data()}))), e => console.error(e));
-    const unsubO = onSnapshot(path('objects'), (s) => setObjects(s.docs.map(d => ({id: d.id, ...d.data()}))), e => console.error(e));
-    const unsubU = onSnapshot(path('users'), (s) => setWorkers(s.docs.map(d => ({id: d.id, ...d.data()}))), e => console.error(e));
-    const unsubL = onSnapshot(path('logs'), (s) => {
-      const list = s.docs.map(d => ({id: d.id, ...d.data()}));
-      setLogs(list.sort((a,b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0)));
-    }, e => console.error(e));
+    return () => unsub.forEach(f => f());
+  }, [user, authReady]);
 
-    return () => { unsubP(); unsubO(); unsubU(); unsubL(); };
-  }, [user]);
-
-  // Login Handler
   const handleLogin = () => {
-    setErrorMsg("");
-    if (pin === ADMIN_PIN) {
-      setCurrentUser({ name: "Administrator", role: "admin" });
-      setView('admin_dashboard');
-      setPin("");
-      return;
-    }
-
-    const worker = workers.find(w => w.pin === pin);
-    if (worker) {
-      setCurrentUser({ ...worker, role: "worker" });
-      setView('worker_projects');
-      setPin("");
+    if (pin === ADMIN_PIN) { 
+      setView('admin'); 
+      setPin(""); 
     } else {
-      setErrorMsg("Ungültiger PIN.");
-      setPin("");
+      const w = data.workers.find(u => u.pin === pin);
+      if (w) { 
+        setUser(prev => ({ ...prev, name: w.name })); 
+        setView('worker_projects'); 
+        setPin(""); 
+      } else { 
+        alert("Falscher PIN"); 
+        setPin(""); 
+      }
     }
   };
 
-  // Fortschritt speichern
-  const updateProgress = async (obj, amount, isBlocked = false, reason = "") => {
+  const updateProg = async (obj, amt, block = false, reason = "") => {
     if (!user) return;
-    const newVal = Math.min((obj.completedUnits || 0) + amount, obj.totalUnits);
-    const finished = newVal === obj.totalUnits;
+    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id);
+    const newVal = Math.min((obj.completedUnits || 0) + amt, obj.totalUnits);
     
     try {
-      await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), {
-        completedUnits: newVal,
-        status: isBlocked ? 'blocked' : (finished ? 'completed' : 'in_progress'),
-        lastUpdate: serverTimestamp()
+      await updateDoc(ref, { 
+        completedUnits: newVal, 
+        status: block ? 'blocked' : (newVal === obj.totalUnits ? 'done' : 'work') 
       });
-
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), {
-        objectId: obj.id,
-        workerName: currentUser?.name || 'Unbekannt',
-        amount,
-        isBlocked,
-        reason,
-        timestamp: serverTimestamp()
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), { 
+        obj: obj.name, 
+        worker: user?.name || 'Admin', 
+        amt, 
+        block, 
+        reason, 
+        timestamp: serverTimestamp() 
       });
+      if (selection.object?.id === obj.id) {
+        setSelection(prev => ({ ...prev, object: { ...obj, completedUnits: newVal } }));
+      }
     } catch (e) {
-      console.error("Update fehlgeschlagen", e);
+      console.error("Update Fehler:", e);
     }
   };
 
-  // --- RENDERING LOGIK ---
-
-  if (loading) return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-blue-500 gap-4">
-      <div className="animate-spin h-10 w-10 border-4 border-blue-500 border-t-transparent rounded-full" />
-      <span className="font-bold tracking-widest uppercase text-xs">System wird geladen...</span>
-    </div>
-  );
-
-  // Hilfsfunktion für das Admin Layout
-  const wrapAdmin = (content) => (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col lg:flex-row font-sans">
-      <aside className="w-full lg:w-64 bg-slate-900 border-r border-slate-800 p-6 flex flex-col gap-8">
-        <div className="flex items-center gap-3">
-          <div className="bg-blue-600 p-2 rounded-lg"><Settings size={20}/></div>
-          <h1 className="font-black text-lg italic uppercase tracking-tighter">Admin Panel</h1>
-        </div>
-        <nav className="flex flex-col gap-2 flex-1">
-          <button onClick={() => setView('admin_dashboard')} className={`flex gap-3 p-3 rounded-xl transition-all ${view === 'admin_dashboard' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
-            <LayoutDashboard size={20}/> Übersicht
-          </button>
-          <button onClick={() => setView('admin_projects')} className={`flex gap-3 p-3 rounded-xl transition-all ${view === 'admin_projects' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
-            <Plus size={20}/> Projekte
-          </button>
-          <button onClick={() => setView('admin_users')} className={`flex gap-3 p-3 rounded-xl transition-all ${view === 'admin_users' ? 'bg-blue-600' : 'hover:bg-slate-800 text-slate-400'}`}>
-            <Users size={20}/> Personal
-          </button>
-        </nav>
-        <button onClick={() => { setView('login'); setCurrentUser(null); }} className="flex gap-3 p-3 text-slate-500 hover:text-white transition-colors">
-          <LogOut size={20}/> Logout
-        </button>
-      </aside>
-      <main className="flex-1 p-6 lg:p-10 overflow-y-auto">
-        {content}
-      </main>
-    </div>
-  );
-
-  // View Variable
-  let activeContent;
-
-  if (view === 'login') {
-    activeContent = (
-      <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 font-sans">
-        <div className="w-full max-w-sm space-y-8">
-          <div className="text-center">
-            <div className="bg-blue-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
-              <ClipboardList size={32} />
-            </div>
-            <h1 className="text-3xl font-black italic tracking-tighter uppercase">MontagePro</h1>
-            <p className="text-slate-400 mt-2">Personal-Login</p>
-          </div>
-          {errorMsg && <div className="bg-red-500/10 border border-red-500/50 text-red-500 p-3 rounded-lg text-center text-sm">{errorMsg}</div>}
-          <div className="flex justify-center gap-4 mb-8">
-            {[1,2,3,4].map(i => (
-              <div key={i} className={`h-4 w-4 rounded-full transition-all duration-300 ${pin.length >= i ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.6)]' : 'bg-slate-800'}`} />
-            ))}
-          </div>
-          <div className="grid grid-cols-3 gap-4">
-            {[1,2,3,4,5,6,7,8,9].map(n => (
-              <button key={n} onClick={() => pin.length < 4 && setPin(p => p + n)} className="h-16 rounded-2xl bg-slate-900 border border-slate-800 text-2xl font-bold active:bg-blue-600 active:scale-95 transition-all">{n}</button>
-            ))}
-            <button onClick={() => setPin("")} className="h-16 rounded-2xl bg-slate-900 border border-slate-800 text-red-400 font-bold text-xl active:scale-95">C</button>
-            <button onClick={() => pin.length < 4 && setPin(p => p + "0")} className="h-16 rounded-2xl bg-slate-900 border border-slate-800 text-2xl font-bold active:scale-95">0</button>
-            <button onClick={handleLogin} disabled={pin.length < 4} className="h-16 rounded-2xl bg-blue-600 flex items-center justify-center disabled:opacity-50 active:scale-95 transition-all"><ChevronRight size={28} /></button>
-          </div>
-        </div>
-      </div>
-    );
-  } else if (view === 'worker_projects') {
-    activeContent = (
-      <div className="min-h-screen bg-slate-950 text-white pb-10">
-        <header className="p-6 flex justify-between items-center border-b border-slate-900 sticky top-0 bg-slate-950/80 backdrop-blur-md z-10">
-          <div><h2 className="text-xl font-bold">Hallo, {currentUser?.name}</h2><p className="text-xs text-slate-400">Wähle ein Projekt</p></div>
-          <button onClick={() => setView('login')} className="p-2 text-slate-500 hover:text-white"><LogOut /></button>
-        </header>
-        <div className="p-4 space-y-4">
-          {projects.map(p => (
-            <Card key={p.id} className="cursor-pointer active:scale-[0.98] transition-transform" onClick={() => { setSelectedProject(p); setView('worker_objects'); }}>
-              <div className="flex justify-between items-center">
-                <div><h3 className="text-lg font-bold">{p.name}</h3><p className="text-xs text-slate-500 uppercase font-bold">{objects.filter(o => o.projectId === p.id).length} Objekte</p></div>
-                <ChevronRight className="text-blue-500" />
-              </div>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
-  } else if (view === 'worker_objects') {
-    activeContent = (
-      <div className="min-h-screen bg-slate-950 text-white">
-        <header className="p-6 flex items-center gap-4 border-b border-slate-900 sticky top-0 bg-slate-950 z-10">
-          <button onClick={() => setView('worker_projects')} className="p-2 bg-slate-900 rounded-xl"><ArrowLeft size={20}/></button>
-          <h2 className="text-xl font-bold truncate">{selectedProject?.name}</h2>
-        </header>
-        <div className="p-4 space-y-3">
-          {objects.filter(o => o.projectId === selectedProject?.id).map(obj => (
-            <Card key={obj.id} className="cursor-pointer active:scale-[0.98] transition-all" onClick={() => { setSelectedObject(obj); setView('worker_input'); }}>
-              <div className="flex justify-between items-start mb-3">
-                <h4 className="font-bold text-lg">{obj.name}</h4>
-                <span className={`text-[10px] px-2 py-0.5 rounded uppercase font-black tracking-wider ${obj.status === 'completed' ? 'bg-emerald-500 text-white' : obj.status === 'blocked' ? 'bg-red-500 text-white' : 'bg-blue-600 text-white'}`}>{obj.status}</span>
-              </div>
-              <ProgressBar current={obj.completedUnits} total={obj.totalUnits} />
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
-  } else if (view === 'worker_input') {
-    activeContent = (
-      <div className="min-h-screen bg-slate-950 text-white">
-        <header className="p-6 flex items-center gap-4 border-b border-slate-900 sticky top-0 bg-slate-950 z-10">
-          <button onClick={() => setView('worker_objects')} className="p-2 bg-slate-900 rounded-xl"><ArrowLeft size={20}/></button>
-          <div><h2 className="text-xl font-bold">{selectedObject?.name}</h2><p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">{selectedProject?.name}</p></div>
-        </header>
-        <div className="p-6 space-y-8">
-          <Card className="bg-slate-900/50"><ProgressBar current={selectedObject?.completedUnits} total={selectedObject?.totalUnits} /></Card>
-          <div className="grid grid-cols-2 gap-4">
-            <button onClick={() => updateProgress(selectedObject, 1)} className="aspect-square rounded-3xl bg-blue-600 flex flex-col items-center justify-center gap-2 active:bg-blue-500 shadow-xl border-b-4 border-blue-800"><Plus size={48} /><span className="font-black text-xl">+1</span></button>
-            <button onClick={() => updateProgress(selectedObject, 10)} className="aspect-square rounded-3xl bg-slate-800 flex flex-col items-center justify-center gap-2 active:bg-slate-700 shadow-xl border-b-4 border-slate-950"><Plus size={48} /><span className="font-black text-xl">+10</span></button>
-          </div>
-          <div className="space-y-4">
-            <Button variant="success" className="w-full h-20 text-xl border-b-4 border-emerald-800" onClick={() => updateProgress(selectedObject, selectedObject.totalUnits - selectedObject.completedUnits)}><CheckCircle2 /> FERTIG</Button>
-            <Button variant="danger" className="w-full h-14 border-b-4 border-red-800" onClick={() => { const r = prompt("Was blockiert?"); if(r) updateProgress(selectedObject, 0, true, r); }}><AlertTriangle size={18} /> BLOCKADE</Button>
-          </div>
-        </div>
-      </div>
-    );
-  } else if (view === 'admin_dashboard') {
-    activeContent = wrapAdmin(
-      <div className="space-y-8 animate-in fade-in duration-500">
-        <header><h2 className="text-3xl font-black italic uppercase">Live Monitor</h2><p className="text-slate-500">Echtzeit-Daten</p></header>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Card className="border-l-4 border-blue-500"><p className="text-slate-500 text-xs font-bold uppercase">Projekte</p><p className="text-4xl font-black">{projects.length}</p></Card>
-          <Card className="border-l-4 border-emerald-500"><p className="text-slate-500 text-xs font-bold uppercase">Objekte</p><p className="text-4xl font-black">{objects.length}</p></Card>
-          <Card className="border-l-4 border-red-500"><p className="text-slate-500 text-xs font-bold uppercase">Blockaden</p><p className="text-4xl font-black">{objects.filter(o=>o.status==='blocked').length}</p></Card>
-        </div>
-        <div className="space-y-4">
-          <h3 className="text-xl font-bold flex items-center gap-2"><Clock size={20}/> Feed</h3>
-          {logs.slice(0, 10).map(l => (
-            <div key={l.id} className="bg-slate-900 border border-slate-800 p-4 rounded-xl flex justify-between items-center">
-              <div><span className="font-bold text-blue-400">{l.workerName}</span><span className="text-slate-400"> - {l.isBlocked ? `BLOCKADE: ${l.reason}` : `${l.amount} Einheiten`}</span></div>
-              <span className="text-[10px] font-mono text-slate-600">{l.timestamp?.toDate().toLocaleTimeString()}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  } else if (view === 'admin_projects') {
-    activeContent = wrapAdmin(
-      <div className="space-y-8">
-        <div className="flex justify-between items-center">
-          <h2 className="text-2xl font-black uppercase italic">Projekte</h2>
-          <Button onClick={() => { const n = prompt("Projektname?"); if(n) addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'projects'), { name: n, createdAt: serverTimestamp() }); }}><Plus size={18}/> Neu</Button>
-        </div>
-        <div className="grid grid-cols-1 gap-6">
-          {projects.map(p => (
-            <Card key={p.id}>
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-black text-blue-500 uppercase">{p.name}</h3>
-                <div className="flex gap-2">
-                  <Button variant="secondary" className="text-xs py-1" onClick={() => {
-                    const on = prompt("Objekt?"); const qty = prompt("Anzahl?");
-                    if(on && qty) addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'objects'), { projectId: p.id, name: on, totalUnits: parseInt(qty), completedUnits: 0, status: 'open', createdAt: serverTimestamp() });
-                  }}>+ Objekt</Button>
-                  <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', p.id))} className="text-slate-600 hover:text-red-500 p-2"><Trash2 size={18}/></button>
-                </div>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {objects.filter(o => o.projectId === p.id).map(obj => (
-                  <div key={obj.id} className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                    <div className="flex justify-between font-bold mb-2"><span>{obj.name}</span><button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id))}><X size={16}/></button></div>
-                    <ProgressBar current={obj.completedUnits} total={obj.totalUnits} />
-                  </div>
-                ))}
-              </div>
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
-  } else if (view === 'admin_users') {
-    activeContent = wrapAdmin(
-      <div className="space-y-8">
-        <div className="flex justify-between items-center"><h2 className="text-2xl font-black uppercase italic">Mitarbeiter</h2><Button onClick={() => { const n = prompt("Name?"); const pin = prompt("PIN?"); if(n && pin) addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { name: n, pin: pin }); }}><Plus size={18}/> Neu</Button></div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {workers.map(w => (
-            <Card key={w.id} className="flex justify-between items-center">
-              <div><p className="font-black text-lg">{w.name}</p><p className="text-xs font-mono text-blue-500">PIN: {w.pin}</p></div>
-              <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', w.id))} className="text-red-500 p-2"><Trash2 size={20}/></button>
-            </Card>
-          ))}
-        </div>
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-blue-500 uppercase tracking-widest text-xs">
+        System wird sicher verbunden...
       </div>
     );
   }
 
-  return (
-    <div className="bg-slate-950 min-h-screen text-slate-100 selection:bg-blue-500/30">
-      {activeContent}
+  // Login View
+  if (view === 'login') return (
+    <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6">
+      <div className="text-center mb-8">
+        <div className="bg-blue-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"><ClipboardList size={32}/></div>
+        <h1 className="text-3xl font-black italic uppercase">MontagePro</h1>
+        <div className="flex gap-2 mt-6 justify-center">
+          {[1, 2, 3, 4].map(i => <div key={i} className={`h-3 w-3 rounded-full ${pin.length >= i ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]' : 'bg-slate-800'}`} />)}
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3 w-full max-w-xs">
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 0].map(n => (
+          <button key={n} onClick={() => pin.length < 4 && setPin(p => p + n)} className="h-14 bg-slate-900 rounded-xl text-xl font-bold active:bg-blue-600 transition-colors">{n}</button>
+        ))}
+        <button onClick={() => setPin("")} className="h-14 bg-slate-800 rounded-xl text-red-400 font-bold text-xl">C</button>
+        <button onClick={handleLogin} disabled={pin.length < 4} className="h-14 bg-blue-600 rounded-xl flex items-center justify-center disabled:opacity-50"><ChevronRight/></button>
+      </div>
+    </div>
+  );
+
+  if (view.startsWith('worker')) return (
+    <div className="min-h-screen bg-slate-950 text-white flex flex-col">
+      <header className="p-4 border-b border-slate-900 flex justify-between items-center bg-slate-950/50 backdrop-blur sticky top-0 z-10">
+        <button 
+          onClick={() => setView(view === 'worker_input' ? 'worker_objects' : 'worker_projects')} 
+          className={`${view === 'worker_projects' ? 'invisible' : ''} p-2 bg-slate-900 rounded-lg`}
+        >
+          <ArrowLeft size={18}/>
+        </button>
+        <span className="font-bold uppercase italic truncate px-4">
+          {view === 'worker_input' ? selection.object?.name : 'MontagePro'}
+        </span>
+        <button onClick={() => setView('login')} className="p-2 text-slate-500"><LogOut size={18}/></button>
+      </header>
+      <main className="p-4 flex-1">
+        {view === 'worker_projects' && data.projects.map(p => (
+          <div key={p.id} onClick={() => { setSelection({ project: p }); setView('worker_objects'); }} className="bg-slate-900 p-5 rounded-2xl mb-3 flex justify-between items-center border border-slate-800 active:scale-95 transition-transform">
+            <span className="font-bold text-lg">{p.name}</span><ChevronRight className="text-slate-700"/>
+          </div>
+        ))}
+        {view === 'worker_objects' && data.objects.filter(o => o.projectId === selection.project?.id).map(o => (
+          <div key={o.id} onClick={() => { setSelection(prev => ({ ...prev, object: o })); setView('worker_input'); }} className="bg-slate-900 p-5 rounded-2xl mb-3 border border-slate-800">
+            <div className="flex justify-between mb-2">
+              <b className="truncate pr-2">{o.name}</b>
+              <span className={`text-[10px] uppercase px-2 py-0.5 rounded font-bold ${o.status === 'done' ? 'bg-emerald-600' : 'bg-blue-600'}`}>
+                {o.status || 'open'}
+              </span>
+            </div>
+            <ProgressBar curr={o.completedUnits} total={o.totalUnits} />
+          </div>
+        ))}
+        {view === 'worker_input' && (
+          <div className="space-y-6">
+            <div className="bg-slate-900 p-6 rounded-2xl text-center border border-slate-800">
+               <span className="text-3xl font-black">{selection.object?.completedUnits} / {selection.object?.totalUnits}</span>
+               <ProgressBar curr={selection.object?.completedUnits} total={selection.object?.totalUnits} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <button onClick={() => updateProg(selection.object, 1)} className="h-32 bg-blue-600 rounded-3xl text-3xl font-black shadow-lg active:scale-95 transition-transform">+1</button>
+              <button onClick={() => updateProg(selection.object, 10)} className="h-32 bg-slate-800 rounded-3xl text-3xl font-black border border-slate-700 active:scale-95 transition-transform">+10</button>
+            </div>
+            <button 
+              onClick={() => updateProg(selection.object, selection.object.totalUnits - selection.object.completedUnits)} 
+              className="w-full py-6 bg-emerald-600 rounded-2xl font-black text-xl shadow-lg active:scale-95 transition-transform"
+            >
+              KOMPLETT FERTIG
+            </button>
+            <button 
+              onClick={() => {
+                const r = prompt("Was blockiert die Arbeit?");
+                if(r) updateProg(selection.object, 0, true, r);
+              }}
+              className="w-full py-3 bg-red-900/20 text-red-500 border border-red-500/30 rounded-xl font-bold flex items-center justify-center gap-2"
+            >
+              <AlertTriangle size={16}/> Problem melden
+            </button>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+
+  if (view === 'admin') return (
+    <div className="min-h-screen bg-slate-950 text-white flex flex-col md:flex-row">
+      <nav className="w-full md:w-64 bg-slate-900 p-6 flex flex-col gap-4 border-r border-slate-800">
+        <h2 className="text-xl font-black italic uppercase text-blue-500 tracking-tighter flex items-center gap-2">
+          <Settings size={20}/> Admin
+        </h2>
+        <button onClick={() => setView('admin')} className="text-left p-3 bg-blue-600 rounded-xl font-bold">Monitor</button>
+        <button onClick={() => { const n = prompt("Projektname?"); if (n) addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'projects'), { name: n }); }} className="text-left p-3 hover:bg-slate-800 rounded-xl transition-colors">+ Projekt</button>
+        <button onClick={() => { const n = prompt("Name?"); const p = prompt("PIN?"); if (n && p) addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { name: n, pin: p }); }} className="text-left p-3 hover:bg-slate-800 rounded-xl transition-colors">+ Monteur</button>
+        <button onClick={() => setView('login')} className="mt-auto p-3 text-slate-500 hover:text-white flex items-center gap-2">
+          <LogOut size={18}/> Logout
+        </button>
+      </nav>
+      <main className="flex-1 p-6 overflow-y-auto">
+        <h3 className="text-2xl font-bold mb-6 italic uppercase tracking-tight">Live Monitor</h3>
+        <div className="grid gap-6">
+          {data.projects.map(p => (
+            <div key={p.id} className="bg-slate-900 p-6 rounded-2xl border border-slate-800">
+              <div className="flex justify-between items-center mb-6">
+                <h4 className="text-xl font-black text-blue-400 uppercase italic tracking-tighter">{p.name}</h4>
+                <div className="flex gap-2">
+                  <button onClick={() => { const n = prompt("Objektname?"); const t = prompt("Einheiten?"); if (n && t) addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'objects'), { projectId: p.id, name: n, totalUnits: parseInt(t), completedUnits: 0, status: 'open' }); }} className="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg font-bold transition-colors">+ Objekt</button>
+                  <button onClick={() => { if(confirm("Projekt löschen?")) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', p.id)); }} className="p-1.5 text-slate-600 hover:text-red-500"><Trash2 size={16}/></button>
+                </div>
+              </div>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {data.objects.filter(o => o.projectId === p.id).map(o => (
+                  <div key={o.id} className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                    <div className="flex justify-between text-xs mb-2 font-bold">
+                      <span className="truncate pr-2">{o.name}</span>
+                      <span className="text-blue-500">{o.completedUnits}/{o.totalUnits}</span>
+                    </div>
+                    <ProgressBar curr={o.completedUnits} total={o.totalUnits}/>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </main>
     </div>
   );
 }
