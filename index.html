@@ -1,288 +1,215 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
-  signInAnonymously, 
-  onAuthStateChanged, 
-  signInWithCustomToken 
-} from 'firebase/auth';
-import { 
-  getFirestore, 
-  collection, 
-  doc, 
-  onSnapshot, 
-  addDoc, 
-  updateDoc, 
-  deleteDoc, 
-  serverTimestamp 
-} from 'firebase/firestore';
-import { 
-  LayoutDashboard, 
-  ClipboardList, 
-  Plus, 
-  AlertTriangle, 
-  CheckCircle2, 
-  ChevronRight, 
-  LogOut, 
-  Settings, 
-  Clock, 
-  ArrowLeft, 
-  Users, 
-  Trash2, 
-  X 
-} from 'lucide-react';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, collection, doc, onSnapshot, addDoc, updateDoc, deleteDoc, serverTimestamp, query } from 'firebase/firestore';
+import { LayoutDashboard, ClipboardList, Plus, AlertTriangle, CheckCircle2, ChevronRight, LogOut, Settings, Clock, ArrowLeft, Users, Trash2, X, HardHat } from 'lucide-react';
 
-// --- CONFIG ---
-const ADMIN_PIN = "0000";
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-  apiKey: "DEIN_KEY", 
-  authDomain: "DEIN_PROJEKT.firebaseapp.com", 
-  projectId: "DEIN_PROJEKT",
-  storageBucket: "DEIN_PROJEKT.appspot.com", 
-  messagingSenderId: "...", 
-  appId: "..."
+// --- FIREBASE KONFIGURATION (DEINE DATEN) ---
+const firebaseConfig = {
+  apiKey: "AIzaSyAed2CEj7_qC4vYnlM2o5u1rtJOGy7EPTc",
+  authDomain: "stundendani.firebaseapp.com",
+  databaseURL: "https://stundendani-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "stundendani",
+  storageBucket: "stundendani.firebasestorage.app",
+  messagingSenderId: "658690155661",
+  appId: "1:658690155661:web:9a4c60bcaa5ba412752ec4"
 };
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'montage-pro-v1';
+const APP_ID_PATH = 'montage-pro-live'; // Interner Pfad für Firestore
 
-// --- UI COMPONENTS ---
-const ProgressBar = ({ curr, total }) => (
-  <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden mt-1">
-    <div 
-      className="bg-blue-500 h-full transition-all duration-500" 
-      style={{ width: `${(curr / total * 100) || 0}%` }} 
-    />
-  </div>
-);
+// --- KOMPONENTEN ---
+
+const ProgressBar = ({ curr, total }) => {
+  const percentage = Math.min(Math.round((curr / total) * 100) || 0, 100);
+  return (
+    <div className="w-full mt-2">
+      <div className="flex justify-between text-[10px] mb-1 font-bold text-slate-400">
+        <span>FORTSCHRITT</span>
+        <span>{percentage}%</span>
+      </div>
+      <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden border border-slate-700">
+        <div 
+          className={`h-full transition-all duration-700 ease-out ${percentage === 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} 
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+    </div>
+  );
+};
 
 export default function App() {
   const [user, setUser] = useState(null);
-  const [view, setView] = useState('login');
+  const [authReady, setAuthReady] = useState(false);
+  const [view, setView] = useState('login'); // login, admin, worker_projects, worker_objects, worker_input
   const [pin, setPin] = useState("");
   const [data, setData] = useState({ projects: [], objects: [], workers: [], logs: [] });
   const [selection, setSelection] = useState({ project: null, object: null });
-  const [authReady, setAuthReady] = useState(false);
 
-  // 1. Authentifizierung initialisieren (Regel 3 beachten)
+  // 1. Auth Initialisierung
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error("Auth-Fehler:", err);
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) {
+        try { await signInAnonymously(auth); } catch (e) { console.error(e); }
       }
-    };
-    
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
-      if (u) setAuthReady(true);
+      setAuthReady(true);
     });
-    return () => unsubscribe();
+    return () => unsub();
   }, []);
 
-  // 2. Daten-Listener (Nur wenn user vorhanden ist)
+  // 2. Echtzeit-Daten-Sync
   useEffect(() => {
     if (!user || !authReady) return;
 
-    const path = (n) => collection(db, 'artifacts', appId, 'public', 'data', n);
+    const getCol = (name) => collection(db, 'artifacts', APP_ID_PATH, 'public', 'data', name);
     
-    // Snapshot-Listener mit Error-Handling
     const unsub = [
-      onSnapshot(path('projects'), 
-        s => setData(prev => ({ ...prev, projects: s.docs.map(d => ({ id: d.id, ...d.data() })) })),
-        e => console.error("Firestore Fehler (Projekte):", e)
-      ),
-      onSnapshot(path('objects'), 
-        s => setData(prev => ({ ...prev, objects: s.docs.map(d => ({ id: d.id, ...d.data() })) })),
-        e => console.error("Firestore Fehler (Objekte):", e)
-      ),
-      onSnapshot(path('users'), 
-        s => setData(prev => ({ ...prev, workers: s.docs.map(d => ({ id: d.id, ...d.data() })) })),
-        e => console.error("Firestore Fehler (Nutzer):", e)
-      ),
-      onSnapshot(path('logs'), 
-        s => setData(prev => ({ ...prev, logs: s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.timestamp - a.timestamp) })),
-        e => console.error("Firestore Fehler (Logs):", e)
-      )
+      onSnapshot(getCol('projects'), s => setData(p => ({...p, projects: s.docs.map(d => ({id: d.id, ...d.data()}))}))),
+      onSnapshot(getCol('objects'), s => setData(p => ({...p, objects: s.docs.map(d => ({id: d.id, ...d.data()}))}))),
+      onSnapshot(getCol('users'), s => setData(p => ({...p, workers: s.docs.map(d => ({id: d.id, ...d.data()}))}))),
+      onSnapshot(getCol('logs'), s => setData(p => ({...p, logs: s.docs.map(d => ({id: d.id, ...d.data()})).sort((a,b) => b.timestamp - a.timestamp)})))
     ];
-
     return () => unsub.forEach(f => f());
   }, [user, authReady]);
 
   const handleLogin = () => {
-    if (pin === ADMIN_PIN) { 
-      setView('admin'); 
-      setPin(""); 
+    if (pin === "0000") {
+      setView('admin');
+      setPin("");
     } else {
-      const w = data.workers.find(u => u.pin === pin);
-      if (w) { 
-        setUser(prev => ({ ...prev, name: w.name })); 
-        setView('worker_projects'); 
-        setPin(""); 
-      } else { 
-        alert("Falscher PIN"); 
-        setPin(""); 
+      const worker = data.workers.find(w => w.pin === pin);
+      if (worker) {
+        setUser(prev => ({ ...prev, name: worker.name }));
+        setView('worker_projects');
+        setPin("");
+      } else {
+        alert("Falscher PIN! (Admin: 0000)");
+        setPin("");
       }
     }
   };
 
-  const updateProg = async (obj, amt, block = false, reason = "") => {
-    if (!user) return;
-    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id);
-    const newVal = Math.min((obj.completedUnits || 0) + amt, obj.totalUnits);
+  const updateProgress = async (obj, amount, isBlocked = false, reason = "") => {
+    const ref = doc(db, 'artifacts', APP_ID_PATH, 'public', 'data', 'objects', obj.id);
+    const newCount = Math.min((obj.completedUnits || 0) + amount, obj.totalUnits);
     
-    try {
-      await updateDoc(ref, { 
-        completedUnits: newVal, 
-        status: block ? 'blocked' : (newVal === obj.totalUnits ? 'done' : 'work') 
-      });
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'logs'), { 
-        obj: obj.name, 
-        worker: user?.name || 'Admin', 
-        amt, 
-        block, 
-        reason, 
-        timestamp: serverTimestamp() 
-      });
-      if (selection.object?.id === obj.id) {
-        setSelection(prev => ({ ...prev, object: { ...obj, completedUnits: newVal } }));
-      }
-    } catch (e) {
-      console.error("Update Fehler:", e);
+    await updateDoc(ref, {
+      completedUnits: newCount,
+      status: isBlocked ? 'blocked' : (newCount === obj.totalUnits ? 'done' : 'work'),
+      lastUpdate: serverTimestamp()
+    });
+
+    await addDoc(collection(db, 'artifacts', APP_ID_PATH, 'public', 'data', 'logs'), {
+      objName: obj.name,
+      workerName: user?.name || 'Unbekannt',
+      amount,
+      isBlocked,
+      reason,
+      timestamp: serverTimestamp()
+    });
+
+    if (selection.object?.id === obj.id) {
+      setSelection(prev => ({ ...prev, object: { ...obj, completedUnits: newCount } }));
     }
   };
 
-  if (!authReady) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-blue-500 uppercase tracking-widest text-xs">
-        System wird sicher verbunden...
-      </div>
-    );
-  }
+  // --- VIEWS ---
 
-  // Login View
-  if (view === 'login') return (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6">
-      <div className="text-center mb-8">
-        <div className="bg-blue-600 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4"><ClipboardList size={32}/></div>
-        <h1 className="text-3xl font-black italic uppercase">MontagePro</h1>
-        <div className="flex gap-2 mt-6 justify-center">
-          {[1, 2, 3, 4].map(i => <div key={i} className={`h-3 w-3 rounded-full ${pin.length >= i ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]' : 'bg-slate-800'}`} />)}
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-3 w-full max-w-xs">
-        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 0].map(n => (
-          <button key={n} onClick={() => pin.length < 4 && setPin(p => p + n)} className="h-14 bg-slate-900 rounded-xl text-xl font-bold active:bg-blue-600 transition-colors">{n}</button>
-        ))}
-        <button onClick={() => setPin("")} className="h-14 bg-slate-800 rounded-xl text-red-400 font-bold text-xl">C</button>
-        <button onClick={handleLogin} disabled={pin.length < 4} className="h-14 bg-blue-600 rounded-xl flex items-center justify-center disabled:opacity-50"><ChevronRight/></button>
-      </div>
+  if (!authReady) return (
+    <div className="min-h-screen bg-slate-950 flex items-center justify-center font-mono text-blue-500 text-xs tracking-[0.3em] animate-pulse">
+      SYSTEM START...
     </div>
   );
 
-  if (view.startsWith('worker')) return (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col">
-      <header className="p-4 border-b border-slate-900 flex justify-between items-center bg-slate-950/50 backdrop-blur sticky top-0 z-10">
-        <button 
-          onClick={() => setView(view === 'worker_input' ? 'worker_objects' : 'worker_projects')} 
-          className={`${view === 'worker_projects' ? 'invisible' : ''} p-2 bg-slate-900 rounded-lg`}
-        >
-          <ArrowLeft size={18}/>
-        </button>
-        <span className="font-bold uppercase italic truncate px-4">
-          {view === 'worker_input' ? selection.object?.name : 'MontagePro'}
-        </span>
-        <button onClick={() => setView('login')} className="p-2 text-slate-500"><LogOut size={18}/></button>
-      </header>
-      <main className="p-4 flex-1">
-        {view === 'worker_projects' && data.projects.map(p => (
-          <div key={p.id} onClick={() => { setSelection({ project: p }); setView('worker_objects'); }} className="bg-slate-900 p-5 rounded-2xl mb-3 flex justify-between items-center border border-slate-800 active:scale-95 transition-transform">
-            <span className="font-bold text-lg">{p.name}</span><ChevronRight className="text-slate-700"/>
-          </div>
+  if (view === 'login') return (
+    <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6">
+      <div className="mb-10 text-center">
+        <div className="w-20 h-20 bg-blue-600 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-[0_0_30px_rgba(37,99,235,0.4)]">
+          <HardHat size={40} strokeWidth={2.5} />
+        </div>
+        <h1 className="text-4xl font-black italic uppercase tracking-tighter mb-2">Montage<span className="text-blue-500 text-5xl">Pro</span></h1>
+        <p className="text-slate-500 font-bold text-xs tracking-widest uppercase">Echtzeit Baustellentracker</p>
+      </div>
+
+      <div className="flex gap-3 mb-10">
+        {[1,2,3,4].map(i => (
+          <div key={i} className={`w-4 h-4 rounded-full border-2 transition-all duration-300 ${pin.length >= i ? 'bg-blue-500 border-blue-400 scale-125' : 'border-slate-800 bg-transparent'}`} />
         ))}
-        {view === 'worker_objects' && data.objects.filter(o => o.projectId === selection.project?.id).map(o => (
-          <div key={o.id} onClick={() => { setSelection(prev => ({ ...prev, object: o })); setView('worker_input'); }} className="bg-slate-900 p-5 rounded-2xl mb-3 border border-slate-800">
-            <div className="flex justify-between mb-2">
-              <b className="truncate pr-2">{o.name}</b>
-              <span className={`text-[10px] uppercase px-2 py-0.5 rounded font-bold ${o.status === 'done' ? 'bg-emerald-600' : 'bg-blue-600'}`}>
-                {o.status || 'open'}
-              </span>
-            </div>
-            <ProgressBar curr={o.completedUnits} total={o.totalUnits} />
-          </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4 w-full max-w-[320px]">
+        {[1,2,3,4,5,6,7,8,9].map(n => (
+          <button key={n} onClick={() => pin.length < 4 && setPin(p => p+n)} className="h-16 bg-slate-900/50 border border-slate-800 rounded-2xl text-2xl font-bold active:bg-blue-600 active:scale-95 transition-all">{n}</button>
         ))}
-        {view === 'worker_input' && (
-          <div className="space-y-6">
-            <div className="bg-slate-900 p-6 rounded-2xl text-center border border-slate-800">
-               <span className="text-3xl font-black">{selection.object?.completedUnits} / {selection.object?.totalUnits}</span>
-               <ProgressBar curr={selection.object?.completedUnits} total={selection.object?.totalUnits} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <button onClick={() => updateProg(selection.object, 1)} className="h-32 bg-blue-600 rounded-3xl text-3xl font-black shadow-lg active:scale-95 transition-transform">+1</button>
-              <button onClick={() => updateProg(selection.object, 10)} className="h-32 bg-slate-800 rounded-3xl text-3xl font-black border border-slate-700 active:scale-95 transition-transform">+10</button>
-            </div>
-            <button 
-              onClick={() => updateProg(selection.object, selection.object.totalUnits - selection.object.completedUnits)} 
-              className="w-full py-6 bg-emerald-600 rounded-2xl font-black text-xl shadow-lg active:scale-95 transition-transform"
-            >
-              KOMPLETT FERTIG
-            </button>
-            <button 
-              onClick={() => {
-                const r = prompt("Was blockiert die Arbeit?");
-                if(r) updateProg(selection.object, 0, true, r);
-              }}
-              className="w-full py-3 bg-red-900/20 text-red-500 border border-red-500/30 rounded-xl font-bold flex items-center justify-center gap-2"
-            >
-              <AlertTriangle size={16}/> Problem melden
-            </button>
-          </div>
-        )}
-      </main>
+        <button onClick={() => setPin("")} className="h-16 flex items-center justify-center text-red-500 font-bold">CLR</button>
+        <button onClick={() => pin.length < 4 && setPin(p => p+"0")} className="h-16 bg-slate-900/50 border border-slate-800 rounded-2xl text-2xl font-bold active:bg-blue-600 active:scale-95 transition-all">0</button>
+        <button onClick={handleLogin} className="h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg active:scale-90 transition-all"><ChevronRight size={32}/></button>
+      </div>
     </div>
   );
 
   if (view === 'admin') return (
     <div className="min-h-screen bg-slate-950 text-white flex flex-col md:flex-row">
-      <nav className="w-full md:w-64 bg-slate-900 p-6 flex flex-col gap-4 border-r border-slate-800">
-        <h2 className="text-xl font-black italic uppercase text-blue-500 tracking-tighter flex items-center gap-2">
-          <Settings size={20}/> Admin
-        </h2>
-        <button onClick={() => setView('admin')} className="text-left p-3 bg-blue-600 rounded-xl font-bold">Monitor</button>
-        <button onClick={() => { const n = prompt("Projektname?"); if (n) addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'projects'), { name: n }); }} className="text-left p-3 hover:bg-slate-800 rounded-xl transition-colors">+ Projekt</button>
-        <button onClick={() => { const n = prompt("Name?"); const p = prompt("PIN?"); if (n && p) addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'users'), { name: n, pin: p }); }} className="text-left p-3 hover:bg-slate-800 rounded-xl transition-colors">+ Monteur</button>
-        <button onClick={() => setView('login')} className="mt-auto p-3 text-slate-500 hover:text-white flex items-center gap-2">
-          <LogOut size={18}/> Logout
+      <aside className="w-full md:w-72 bg-slate-900/50 border-r border-slate-800 p-6 flex flex-col gap-4 backdrop-blur-xl">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2 bg-blue-600 rounded-lg"><Settings size={20}/></div>
+          <h2 className="text-xl font-black italic uppercase tracking-tight">Leitstand</h2>
+        </div>
+        <button onClick={() => {
+          const n = prompt("Projektname?");
+          if(n) addDoc(collection(db, 'artifacts', APP_ID_PATH, 'public', 'data', 'projects'), { name: n, createdAt: serverTimestamp() });
+        }} className="w-full py-3 bg-slate-800 hover:bg-blue-600 rounded-xl font-bold transition-all flex items-center justify-center gap-2">
+          <Plus size={18}/> Projekt anlegen
         </button>
-      </nav>
-      <main className="flex-1 p-6 overflow-y-auto">
-        <h3 className="text-2xl font-bold mb-6 italic uppercase tracking-tight">Live Monitor</h3>
-        <div className="grid gap-6">
+        <button onClick={() => {
+          const n = prompt("Name des Monteurs?");
+          const p = prompt("4-stelliger PIN?");
+          if(n && p) addDoc(collection(db, 'artifacts', APP_ID_PATH, 'public', 'data', 'users'), { name: n, pin: p });
+        }} className="w-full py-3 bg-slate-800 hover:bg-slate-700 rounded-xl font-bold transition-all flex items-center justify-center gap-2 border border-slate-700">
+          <Users size={18}/> Monteur anlegen
+        </button>
+        <button onClick={() => setView('login')} className="mt-auto py-3 text-slate-500 hover:text-white flex items-center gap-2 font-bold transition-colors">
+          <LogOut size={18}/> Abmelden
+        </button>
+      </aside>
+
+      <main className="flex-1 p-6 lg:p-10 overflow-y-auto">
+        <div className="flex justify-between items-end mb-8">
+          <div>
+            <h3 className="text-3xl font-black italic uppercase">Live Monitor</h3>
+            <p className="text-slate-500 text-sm font-bold">Aktuelle Fortschritte aller Baustellen</p>
+          </div>
+        </div>
+
+        <div className="grid gap-8">
+          {data.projects.length === 0 && <div className="p-20 border-2 border-dashed border-slate-800 rounded-3xl text-center text-slate-600 font-bold">Keine Projekte vorhanden. Bitte links eines erstellen.</div>}
           {data.projects.map(p => (
-            <div key={p.id} className="bg-slate-900 p-6 rounded-2xl border border-slate-800">
+            <div key={p.id} className="bg-slate-900/30 border border-slate-800 p-6 rounded-3xl shadow-xl">
               <div className="flex justify-between items-center mb-6">
-                <h4 className="text-xl font-black text-blue-400 uppercase italic tracking-tighter">{p.name}</h4>
+                <h4 className="text-xl font-black text-blue-400 italic uppercase">{p.name}</h4>
                 <div className="flex gap-2">
-                  <button onClick={() => { const n = prompt("Objektname?"); const t = prompt("Einheiten?"); if (n && t) addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'objects'), { projectId: p.id, name: n, totalUnits: parseInt(t), completedUnits: 0, status: 'open' }); }} className="text-xs bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg font-bold transition-colors">+ Objekt</button>
-                  <button onClick={() => { if(confirm("Projekt löschen?")) deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'projects', p.id)); }} className="p-1.5 text-slate-600 hover:text-red-500"><Trash2 size={16}/></button>
+                  <button onClick={() => {
+                    const n = prompt("Bezeichnung des Objekts?");
+                    const t = prompt("Anzahl Einheiten (z.B. 120)?");
+                    if(n && t) addDoc(collection(db, 'artifacts', APP_ID_PATH, 'public', 'data', 'objects'), { 
+                      projectId: p.id, name: n, totalUnits: parseInt(t), completedUnits: 0, status: 'open' 
+                    });
+                  }} className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-xl text-xs font-black uppercase transition-all shadow-lg">+ Objekt</button>
+                  <button onClick={() => confirm("Projekt löschen?") && deleteDoc(doc(db, 'artifacts', APP_ID_PATH, 'public', 'data', 'projects', p.id))} className="p-2 text-slate-600 hover:text-red-500 transition-colors"><Trash2 size={18}/></button>
                 </div>
               </div>
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {data.objects.filter(o => o.projectId === p.id).map(o => (
-                  <div key={o.id} className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-                    <div className="flex justify-between text-xs mb-2 font-bold">
-                      <span className="truncate pr-2">{o.name}</span>
-                      <span className="text-blue-500">{o.completedUnits}/{o.totalUnits}</span>
+                  <div key={o.id} className="bg-slate-950 border border-slate-800 p-4 rounded-2xl group hover:border-blue-500/50 transition-all">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="font-bold text-sm truncate pr-2">{o.name}</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded font-black uppercase ${o.status === 'done' ? 'bg-emerald-500/20 text-emerald-500' : 'bg-blue-500/20 text-blue-500'}`}>{o.status || 'open'}</span>
                     </div>
-                    <ProgressBar curr={o.completedUnits} total={o.totalUnits}/>
+                    <div className="text-xl font-black mb-1">{o.completedUnits} <span className="text-slate-600 text-sm">/ {o.totalUnits}</span></div>
+                    <ProgressBar curr={o.completedUnits} total={o.totalUnits} />
                   </div>
                 ))}
               </div>
@@ -292,4 +219,70 @@ export default function App() {
       </main>
     </div>
   );
+
+  if (view.startsWith('worker')) return (
+    <div className="min-h-screen bg-slate-950 text-white flex flex-col">
+      <header className="p-5 border-b border-slate-900 flex justify-between items-center bg-slate-950/80 backdrop-blur-xl sticky top-0 z-20">
+        <button onClick={() => setView(view === 'worker_input' ? 'worker_objects' : 'worker_projects')} className={`${view === 'worker_projects' ? 'invisible' : 'bg-slate-900 p-3 rounded-xl'}`}><ArrowLeft size={20}/></button>
+        <div className="text-center">
+          <h2 className="font-black italic uppercase tracking-tighter leading-none">
+            {view === 'worker_projects' ? 'Meine Projekte' : (view === 'worker_objects' ? selection.project?.name : selection.object?.name)}
+          </h2>
+          {user?.name && <p className="text-[10px] text-blue-500 font-bold uppercase mt-1">Monteur: {user.name}</p>}
+        </div>
+        <button onClick={() => window.location.reload()} className="p-3 text-slate-600"><LogOut size={20}/></button>
+      </header>
+
+      <main className="p-5 flex-1 overflow-y-auto">
+        {view === 'worker_projects' && data.projects.map(p => (
+          <div key={p.id} onClick={() => { setSelection({ project: p }); setView('worker_objects'); }} className="bg-slate-900/50 p-6 rounded-3xl mb-4 flex justify-between items-center border border-slate-800 active:scale-[0.98] transition-all shadow-lg">
+            <span className="font-black text-xl italic uppercase truncate pr-4">{p.name}</span>
+            <div className="bg-blue-600 p-2 rounded-lg shadow-lg"><ChevronRight size={20}/></div>
+          </div>
+        ))}
+
+        {view === 'worker_objects' && data.objects.filter(o => o.projectId === selection.project?.id).map(o => (
+          <div key={o.id} onClick={() => { setSelection(prev => ({ ...prev, object: o })); setView('worker_input'); }} className="bg-slate-900/50 p-6 rounded-3xl mb-4 border border-slate-800 active:scale-[0.98] transition-all shadow-lg">
+            <div className="flex justify-between items-center mb-3">
+              <span className="font-black text-lg truncate pr-3">{o.name}</span>
+              <span className={`text-[10px] px-2 py-1 rounded-lg font-black uppercase ${o.status === 'done' ? 'bg-emerald-600 shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-blue-600 shadow-[0_0_15px_rgba(37,99,235,0.3)]'}`}>{o.status || 'open'}</span>
+            </div>
+            <div className="flex items-end gap-2 mb-2">
+              <span className="text-3xl font-black">{o.completedUnits}</span>
+              <span className="text-slate-500 font-bold mb-1">/ {o.totalUnits} Einheiten</span>
+            </div>
+            <ProgressBar curr={o.completedUnits} total={o.totalUnits} />
+          </div>
+        ))}
+
+        {view === 'worker_input' && (
+          <div className="max-w-md mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="bg-slate-900 p-10 rounded-[3rem] text-center border-2 border-blue-600/30 shadow-2xl relative overflow-hidden">
+               <div className="absolute top-0 left-0 w-full h-1 bg-slate-800">
+                  <div className="h-full bg-blue-500 transition-all duration-500" style={{width: `${(selection.object?.completedUnits / selection.object?.totalUnits) * 100}%`}}></div>
+               </div>
+               <span className="text-6xl font-black block mb-2 tabular-nums">{selection.object?.completedUnits}</span>
+               <span className="text-slate-500 font-bold uppercase tracking-widest text-sm">von {selection.object?.totalUnits} Einheiten montiert</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-6">
+              <button onClick={() => updateProgress(selection.object, 1)} className="h-40 bg-blue-600 rounded-[2.5rem] text-5xl font-black shadow-[0_15px_30px_rgba(37,99,235,0.4)] active:scale-90 active:shadow-inner transition-all border-b-8 border-blue-800">+1</button>
+              <button onClick={() => updateProgress(selection.object, 10)} className="h-40 bg-slate-900 rounded-[2.5rem] text-5xl font-black border-2 border-slate-800 active:scale-90 transition-all border-b-8 border-slate-950">+10</button>
+            </div>
+
+            <button onClick={() => updateProgress(selection.object, selection.object.totalUnits - selection.object.completedUnits)} className="w-full py-8 bg-emerald-600 rounded-3xl font-black text-2xl shadow-[0_10px_25px_rgba(16,185,129,0.3)] active:scale-95 transition-all border-b-8 border-emerald-800">ALLES FERTIG ✅</button>
+            
+            <button onClick={() => {
+              const r = prompt("Warum ist die Arbeit blockiert?");
+              if(r) updateProgress(selection.object, 0, true, r);
+            }} className="w-full py-4 text-red-500 border-2 border-red-500/20 rounded-2xl font-black flex items-center justify-center gap-3 bg-red-500/5 active:bg-red-500/20 transition-all">
+              <AlertTriangle size={20}/> PROBLEM MELDEN
+            </button>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+
+  return null;
 }
