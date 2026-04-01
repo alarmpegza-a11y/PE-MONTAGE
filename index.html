@@ -2,64 +2,143 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Montage Manager</title>
-    <!-- Tailwind CSS für das Design -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Montage Manager Pro Premium</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React & Babel für die Logik -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Lucide Icons (SVG Icons) -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&display=swap" rel="stylesheet">
     <style>
-        body { overscroll-behavior-y: contain; font-family: sans-serif; }
-        button { user-select: none; -webkit-tap-highlight-color: transparent; }
-        .no-scrollbar::-webkit-scrollbar { display: none; }
+        :root {
+            --primary: #3b82f6;
+            --primary-dark: #2563eb;
+            --bg-main: #0f172a;
+            --bg-card: #1e293b;
+        }
+        body { 
+            overscroll-behavior-y: contain; 
+            font-family: 'Inter', sans-serif; 
+            background-color: var(--bg-main);
+            color: #f1f5f9;
+            -webkit-font-smoothing: antialiased;
+        }
+        * { -webkit-tap-highlight-color: transparent; }
+
+        .glass {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .btn-tactile {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .btn-tactile:active {
+            transform: scale(0.96) translateY(2px);
+            box-shadow: none;
+        }
+
+        .status-badge {
+            font-size: 0.65rem;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            font-weight: 800;
+            padding: 4px 10px;
+            border-radius: 9999px;
+        }
+
+        .card-gradient {
+            background: linear-gradient(135deg, rgba(30, 41, 59, 1) 0%, rgba(15, 23, 42, 1) 100%);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        /* Animationen */
+        .page-transition {
+            animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        select {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1.25rem center;
+            background-size: 1.25rem;
+        }
     </style>
 </head>
-<body class="bg-slate-900">
+<body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- ICONS KOMPONENTE ---
-        // Da wir im Browser sind, bauen wir kleine SVG Wrapper für die Icons
         const Icon = ({ name, size = 24, className = "" }) => {
-            useEffect(() => { lucide.createIcons(); }, []);
-            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
+            const iconRef = useRef(null);
+            useEffect(() => {
+                if (window.lucide && iconRef.current) {
+                    window.lucide.createIcons({
+                        attrs: { class: className, style: `width: ${size}px; height: ${size}px;` },
+                        nameAttr: 'data-lucide-name'
+                    });
+                }
+            }, [name, className, size]);
+            return (
+                <span className={`inline-flex items-center justify-center shrink-0 ${className}`} style={{ width: size, height: size }}>
+                    <i ref={iconRef} data-lucide-name={name} style={{ width: size, height: size }}></i>
+                </span>
+            );
         };
 
-        // --- DATEN ---
-        const INITIAL_USERS = [
-            { id: 'u1', name: 'Admin', pin: '0000', role: 'admin' },
-            { id: 'u2', name: 'Max Mustermann', pin: '1234', role: 'worker' },
-            { id: 'u3', name: 'Andreas Montage', pin: '5678', role: 'worker' },
-        ];
+        const formatDate = (isoStr) => {
+            if (!isoStr) return "N/A";
+            return new Date(isoStr).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        };
 
-        const INITIAL_PROJECTS = [
-            { id: 'p1', name: 'Wohnanlage Alster', customer: 'Immo Nord GmbH' },
-            { id: 'p2', name: 'Büropark West', customer: 'TechCorp' },
-        ];
-
-        const INITIAL_OBJECTS = [
-            { id: 'o1', projectId: 'p1', name: 'Fenster EG', target: 20, current: 5, status: 'active' },
-            { id: 'o2', projectId: 'p1', name: 'Türen 1. OG', target: 15, current: 0, status: 'active' },
-            { id: 'o3', projectId: 'p2', name: 'Fassadenelemente', target: 100, current: 45, status: 'active' },
-        ];
+        const ADMIN_PIN = "8852";
+        const WORKER_PIN = "8623";
 
         function App() {
-            const [user, setUser] = useState(null);
             const [pin, setPin] = useState('');
-            const [view, setView] = useState('login');
-            const [users] = useState(INITIAL_USERS);
-            const [projects] = useState(INITIAL_PROJECTS);
-            const [objects, setObjects] = useState(() => JSON.parse(localStorage.getItem('mt_objects')) || INITIAL_OBJECTS);
+            const [view, setView] = useState('login'); 
+            const [searchTerm, setSearchTerm] = useState('');
+            const [filterBlockedOnly, setFilterBlockedOnly] = useState(false);
+            const [workerSearchTerm, setWorkerSearchTerm] = useState('');
+            const [showAddModal, setShowAddModal] = useState(false);
             const [selectedObject, setSelectedObject] = useState(null);
+            
+            const [workerSelectedHouse, setWorkerSelectedHouse] = useState('');
+            const [workerAmount, setWorkerAmount] = useState('');
+            const [workerBlocked, setWorkerBlocked] = useState(false);
+            const [workerBlockReason, setWorkerBlockReason] = useState('');
+            const [workerDeliveryFinished, setWorkerDeliveryFinished] = useState(false);
+
+            const [objects, setObjects] = useState(() => {
+                const saved = localStorage.getItem('mt_pro_v7_premium');
+                return saved ? JSON.parse(saved) : [
+                    { 
+                        id: '1', 
+                        name: 'Residenz Sihlhalde', 
+                        houses: [
+                            { name: 'Haus A', target: 45, current: 12 },
+                            { name: 'Haus B', target: 20, current: 0 }
+                        ], 
+                        customer: 'Meyer Immobilien', 
+                        deliveryDate: '2024-08-15', 
+                        status: 'active', 
+                        history: [] 
+                    }
+                ];
+            });
 
             useEffect(() => {
-                localStorage.setItem('mt_objects', JSON.stringify(objects));
+                localStorage.setItem('mt_pro_v7_premium', JSON.stringify(objects));
             }, [objects]);
 
             const handleLogin = (digit) => {
@@ -67,133 +146,412 @@
                 if (newPin.length < 4) {
                     setPin(newPin);
                 } else {
-                    const foundUser = users.find(u => u.pin === newPin);
-                    if (foundUser) {
-                        setUser(foundUser);
-                        setPin('');
-                        setView(foundUser.role === 'admin' ? 'dashboard' : 'worker_projects');
-                    } else {
-                        setPin('');
-                    }
+                    if (newPin === ADMIN_PIN) setView('dashboard');
+                    else if (newPin === WORKER_PIN) setView('worker_list');
+                    setPin('');
                 }
             };
 
-            // --- UI: LOGIN ---
-            if (view === 'login') return (
-                <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white p-6">
-                    <div className="mb-12 text-center">
-                        <div className="w-20 h-20 bg-blue-600 rounded-3xl mx-auto mb-4 flex items-center justify-center shadow-lg shadow-blue-900">
-                            <Icon name="package" size={40} className="text-white" />
-                        </div>
-                        <h1 className="text-3xl font-bold mb-2">Montage Manager</h1>
-                        <p className="text-slate-400">PIN eingeben</p>
-                    </div>
-                    <div className="flex gap-4 mb-12">
-                        {[0, 1, 2, 3].map(i => (
-                            <div key={i} className={`w-4 h-4 rounded-full border-2 border-blue-400 transition-all ${pin.length > i ? 'bg-blue-400 scale-125' : 'bg-transparent'}`} />
-                        ))}
-                    </div>
-                    <div className="grid grid-cols-3 gap-4 w-full max-w-xs">
-                        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => (
-                            <button key={n} onClick={() => handleLogin(n.toString())} className="h-20 text-2xl font-bold bg-slate-800 rounded-2xl active:bg-blue-600 transition-colors">{n}</button>
-                        ))}
-                        <div />
-                        <button onClick={() => handleLogin('0')} className="h-20 text-2xl font-bold bg-slate-800 rounded-2xl active:bg-blue-600">0</button>
-                        <button onClick={() => setPin('')} className="h-20 text-sm font-semibold text-red-400 active:bg-red-900/20 rounded-2xl">Reset</button>
-                    </div>
-                </div>
-            );
+            const submitWorkerUpdate = () => {
+                if (!workerSelectedHouse && !workerBlocked) return;
+                const updateAmount = parseInt(workerAmount) || 0;
+                
+                setObjects(prev => prev.map(obj => {
+                    if (obj.id === selectedObject.id) {
+                        const newHouses = obj.houses.map(h => {
+                            if (h.name === workerSelectedHouse) {
+                                let nc = h.current + updateAmount;
+                                if (workerDeliveryFinished) nc = h.target;
+                                return { ...h, current: Math.min(h.target, nc) };
+                            }
+                            return h;
+                        });
+                        const totalTarget = newHouses.reduce((s, h) => s + h.target, 0);
+                        const totalCurrent = newHouses.reduce((s, h) => s + h.current, 0);
+                        return {
+                            ...obj,
+                            houses: newHouses,
+                            status: workerBlocked ? 'blocked' : (totalCurrent >= totalTarget ? 'finished' : 'active'),
+                            history: [{ 
+                                date: new Date().toISOString(), 
+                                houseName: workerSelectedHouse, 
+                                amount: updateAmount, 
+                                isBlocked: workerBlocked,
+                                blockReason: workerBlocked ? workerBlockReason : ''
+                            }, ...obj.history]
+                        };
+                    }
+                    return obj;
+                }));
 
-            // --- UI: WORKER PROJECTS ---
-            if (view === 'worker_projects') return (
-                <div className="min-h-screen bg-slate-900 text-white flex flex-col p-4 pb-10">
-                    <div className="flex justify-between items-center mb-8 pt-4">
-                        <h2 className="text-xl font-bold">Hallo, {user.name}</h2>
-                        <button onClick={() => setView('login')} className="p-2 text-slate-400"><Icon name="log-out" /></button>
-                    </div>
-                    <div className="space-y-6">
-                        {projects.map(proj => (
-                            <div key={proj.id}>
-                                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">{proj.name}</h3>
-                                <div className="space-y-3">
-                                    {objects.filter(o => o.projectId === proj.id).map(obj => (
-                                        <button 
-                                            key={obj.id} 
-                                            onClick={() => { setSelectedObject(obj); setView('worker_detail'); }}
-                                            className="w-full bg-slate-800 border border-slate-700/50 p-5 rounded-3xl flex items-center justify-between active:scale-95 transition-transform"
-                                        >
-                                            <div className="text-left">
-                                                <p className="font-bold text-lg">{obj.name}</p>
-                                                <p className="text-sm text-slate-400">{obj.current} / {obj.target} fertig</p>
-                                            </div>
-                                            <Icon name="chevron-right" className="text-slate-600" />
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            );
+                setWorkerAmount(''); 
+                setWorkerBlocked(false); 
+                setWorkerBlockReason('');
+                setWorkerSelectedHouse(''); 
+                setView('worker_list');
+            };
 
-            // --- UI: WORKER DETAIL ---
-            if (view === 'worker_detail') {
-                const obj = objects.find(o => o.id === selectedObject.id);
-                const update = (amt) => {
-                    setObjects(prev => prev.map(o => o.id === obj.id ? {...o, current: Math.min(o.target, o.current + amt)} : o));
+            const stats = useMemo(() => {
+                let total = 0, done = 0, blocked = 0;
+                objects.forEach(obj => {
+                    obj.houses.forEach(h => { total += h.target; done += h.current; });
+                    if (obj.status === 'blocked') blocked++;
+                });
+                return { 
+                    open: objects.filter(o => o.status === 'active').length, 
+                    percent: total > 0 ? Math.round((done/total)*100) : 0,
+                    blocked: blocked
                 };
-                return (
-                    <div className="min-h-screen bg-slate-900 text-white flex flex-col p-4">
-                        <button onClick={() => setView('worker_projects')} className="flex items-center text-blue-400 font-bold mb-8 pt-4">
-                            <Icon name="chevron-left" className="mr-1" /> Zurück
-                        </button>
-                        <h2 className="text-2xl font-bold mb-2">{obj.name}</h2>
-                        <div className="bg-slate-800 rounded-3xl p-10 text-center mb-8 border border-slate-700">
-                            <span className="text-7xl font-black text-blue-400">{obj.current}</span>
-                            <span className="text-xl text-slate-600 ml-2">/ {obj.target}</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4 mb-8">
-                            <button onClick={() => update(1)} className="bg-blue-600 h-32 rounded-3xl flex flex-col items-center justify-center active:bg-blue-700">
-                                <Icon name="plus" size={32} /><span className="font-bold mt-2">+1</span>
-                            </button>
-                            <button onClick={() => update(10)} className="bg-blue-500 h-32 rounded-3xl flex flex-col items-center justify-center active:bg-blue-600">
-                                <Icon name="plus" size={32} /><span className="font-bold mt-2">+10</span>
-                            </button>
-                        </div>
-                        <button onClick={() => update(obj.target - obj.current)} className="bg-green-600 w-full py-5 rounded-2xl font-bold flex items-center justify-center gap-2 active:bg-green-700">
-                            <Icon name="check-circle" /> Alles fertig melden
-                        </button>
-                    </div>
-                );
-            }
+            }, [objects]);
 
-            // --- UI: ADMIN DASHBOARD (Vereinfacht) ---
-            if (view === 'dashboard') return (
-                <div className="min-h-screen bg-slate-50 flex flex-col p-4">
-                    <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-xl font-bold text-slate-800">Admin Dashboard</h2>
-                        <button onClick={() => setView('login')} className="p-2 text-slate-400"><Icon name="log-out" /></button>
-                    </div>
-                    <div className="bg-blue-600 text-white p-6 rounded-3xl mb-6 shadow-lg">
-                        <p className="text-blue-100 mb-1">Status Gesamt</p>
-                        <h3 className="text-4xl font-bold mb-4">Übersicht</h3>
-                        <div className="space-y-4">
-                            {objects.map(o => (
-                                <div key={o.id} className="text-sm">
-                                    <div className="flex justify-between mb-1">
-                                        <span>{o.name}</span>
-                                        <span className="font-mono">{o.current}/{o.target}</span>
-                                    </div>
-                                    <div className="w-full bg-blue-400/30 h-2 rounded-full">
-                                        <div className="bg-white h-full rounded-full" style={{width: `${(o.current/o.target)*100}%`}}></div>
-                                    </div>
-                                </div>
+            // Gefilterte Liste für den Admin
+            const filteredAdminObjects = useMemo(() => {
+                return objects.filter(obj => {
+                    const matchesSearch = obj.name.toLowerCase().includes(searchTerm.toLowerCase());
+                    const matchesFilter = filterBlockedOnly ? obj.status === 'blocked' : true;
+                    return matchesSearch && matchesFilter;
+                });
+            }, [objects, searchTerm, filterBlockedOnly]);
+
+            if (view === 'login') return (
+                <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-slate-950 overflow-hidden relative">
+                    <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/10 blur-[120px] rounded-full"></div>
+                    <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-600/10 blur-[120px] rounded-full"></div>
+                    
+                    <div className="z-10 flex flex-col items-center w-full max-w-sm">
+                        <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-[1.5rem] flex items-center justify-center shadow-2xl mb-8 rotate-3">
+                            <Icon name="shield-check" size={40} className="text-white" />
+                        </div>
+                        <h1 className="text-3xl font-black tracking-tight text-white italic mb-10">MMP PREMIUM</h1>
+                        
+                        <div className="flex gap-4 mb-12">
+                            {[0,1,2,3].map(i => (
+                                <div key={i} className={`w-3.5 h-3.5 rounded-full border-2 border-blue-500 transition-all ${pin.length > i ? 'bg-blue-500 scale-125' : 'bg-transparent opacity-30'}`} />
                             ))}
                         </div>
+
+                        <div className="grid grid-cols-3 gap-5 w-full">
+                            {[1,2,3,4,5,6,7,8,9].map(n => (
+                                <button key={n} onClick={() => handleLogin(n.toString())} className="h-16 glass rounded-2xl text-xl font-black text-white hover:bg-slate-800 transition-all active:scale-90 border border-white/5">{n}</button>
+                            ))}
+                            <button onClick={() => setPin('')} className="h-16 flex items-center justify-center text-slate-500"><Icon name="delete" size={24}/></button>
+                            <button onClick={() => handleLogin('0')} className="h-16 glass rounded-2xl text-xl font-black text-white active:scale-90 border border-white/5">0</button>
+                        </div>
                     </div>
-                    <p className="text-center text-slate-400 text-sm italic mt-auto">Weitere Admin-Funktionen folgen in Kürze...</p>
                 </div>
             );
+
+            if (view === 'dashboard') return (
+                <div className="min-h-screen bg-slate-950 pb-24 page-transition">
+                    <nav className="p-6 sticky top-0 z-40 glass border-b border-white/10 flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-lg shadow-blue-900/40">
+                                <Icon name="layout" size={18}/>
+                            </div>
+                            <h2 className="text-lg font-black text-white italic">ADMIN PANEL</h2>
+                        </div>
+                        <button onClick={() => setView('login')} className="p-2 text-slate-400 hover:text-white transition-colors"><Icon name="log-out" size={20}/></button>
+                    </nav>
+
+                    <main className="p-6 max-w-2xl mx-auto space-y-10">
+                        {/* Stats Section */}
+                        <div className="grid grid-cols-3 gap-4">
+                            <div className="card-gradient p-4 rounded-[1.25rem] shadow-xl">
+                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Aktiv</p>
+                                <div className="flex items-end gap-1">
+                                    <span className="text-2xl font-black text-white leading-none">{stats.open}</span>
+                                    <span className="text-[8px] font-bold text-blue-500 uppercase mb-0.5">Obj.</span>
+                                </div>
+                            </div>
+                            
+                            {/* Klickbare Blockiert-Karte */}
+                            <button 
+                                onClick={() => setFilterBlockedOnly(!filterBlockedOnly)}
+                                className={`card-gradient p-4 rounded-[1.25rem] shadow-xl ring-1 transition-all text-left group active:scale-95 ${filterBlockedOnly ? 'ring-red-500 bg-red-500/10' : 'ring-red-500/20'}`}
+                            >
+                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1 group-hover:text-red-400">Blockiert</p>
+                                <div className="flex items-end gap-1">
+                                    <span className={`text-2xl font-black leading-none ${stats.blocked > 0 ? 'text-red-500' : 'text-white'}`}>{stats.blocked}</span>
+                                    <span className="text-[8px] font-bold text-red-500 uppercase mb-0.5">Obj.</span>
+                                </div>
+                                {stats.blocked > 0 && !filterBlockedOnly && (
+                                    <div className="mt-1 text-[7px] text-red-400/60 font-bold uppercase animate-pulse">Klick zum Filtern</div>
+                                )}
+                            </button>
+
+                            <div className="card-gradient p-4 rounded-[1.25rem] shadow-xl">
+                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Status</p>
+                                <div className="flex items-end gap-1">
+                                    <span className="text-2xl font-black text-white leading-none">{stats.percent}%</span>
+                                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 mb-1.5 animate-pulse"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* OBJEKT ERÖFFNEN - GROSSER BLAUER BUTTON */}
+                        <button 
+                            onClick={() => setShowAddModal(true)} 
+                            className="w-full bg-blue-600 hover:bg-blue-500 text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+                        >
+                            <Icon name="plus-circle" size={20}/>
+                            Neues Objekt eröffnen
+                        </button>
+
+                        {/* Search & Filter Info */}
+                        <div className="space-y-4">
+                            <div className="relative group">
+                                <Icon name="search" size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" />
+                                <input 
+                                    type="text" 
+                                    placeholder="Suche..." 
+                                    className="w-full bg-slate-900 border border-white/5 rounded-xl py-3.5 pl-12 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
+                            </div>
+                            
+                            {filterBlockedOnly && (
+                                <div className="flex items-center justify-between bg-red-500/10 border border-red-500/20 p-3 rounded-xl animate-in slide-in-from-top-2">
+                                    <span className="text-[10px] font-black text-red-400 uppercase tracking-widest flex items-center gap-2">
+                                        <Icon name="filter" size={12}/> Filter: Nur blockierte Objekte
+                                    </span>
+                                    <button 
+                                        onClick={() => setFilterBlockedOnly(false)}
+                                        className="text-[10px] font-black text-white bg-red-600 px-3 py-1 rounded-lg uppercase"
+                                    >
+                                        Filter aufheben
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Object List */}
+                        <div className="space-y-8">
+                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-1">
+                                {filterBlockedOnly ? 'Blockierte Projekte' : 'Aktuelle Projekte'}
+                            </p>
+                            
+                            {filteredAdminObjects.length === 0 ? (
+                                <div className="text-center py-20 bg-slate-900/20 rounded-[2rem] border border-dashed border-white/10">
+                                    <Icon name="inbox" size={40} className="mx-auto text-slate-700 mb-4" />
+                                    <p className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Keine Objekte gefunden</p>
+                                </div>
+                            ) : (
+                                filteredAdminObjects.map(obj => {
+                                    const total = obj.houses.reduce((s, h) => s + h.target, 0);
+                                    const done = obj.houses.reduce((s, h) => s + h.current, 0);
+                                    const perc = total > 0 ? (done/total)*100 : 0;
+                                    return (
+                                        <div key={obj.id} className={`card-gradient rounded-[1.5rem] overflow-hidden shadow-2xl animate-in ${obj.status === 'blocked' ? 'ring-1 ring-red-500/30' : ''}`}>
+                                            <div className="p-6">
+                                                <div className="flex justify-between items-start mb-6">
+                                                    <div>
+                                                        <h3 className="text-xl font-black text-white leading-tight mb-1">{obj.name}</h3>
+                                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{obj.customer}</p>
+                                                    </div>
+                                                    <span className={`status-badge ${obj.status === 'blocked' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'}`}>
+                                                        {obj.status}
+                                                    </span>
+                                                </div>
+                                                
+                                                <div className="space-y-4 mb-6">
+                                                    {obj.houses.map((h, idx) => (
+                                                        <div key={idx} className="flex items-center gap-4">
+                                                            <span className="text-[10px] font-black text-slate-400 w-14 uppercase truncate">{h.name}</span>
+                                                            <div className="flex-1 bg-slate-950 h-1.5 rounded-full overflow-hidden">
+                                                                <div className={`h-full transition-all duration-1000 ${h.current >= h.target ? 'bg-green-500' : 'bg-blue-600'}`} style={{width: `${(h.current/h.target)*100}%`}}></div>
+                                                            </div>
+                                                            <span className="text-[10px] font-bold text-slate-300 w-10 text-right">{h.current}/{h.target}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+
+                                                <div className="flex justify-between items-center pt-5 border-t border-white/5">
+                                                    <div className="flex items-center gap-2 text-slate-500">
+                                                        <Icon name="calendar" size={14}/>
+                                                        <span className="text-[10px] font-bold">{formatDate(obj.deliveryDate)}</span>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <p className="text-[10px] font-black text-slate-500 uppercase mb-0.5">Fortschritt</p>
+                                                        <p className="text-sm font-black text-white italic">{Math.round(perc)}%</p>
+                                                    </div>
+                                                </div>
+                                                
+                                                {obj.status === 'blocked' && obj.history[0]?.blockReason && (
+                                                    <div className="mt-4 p-3 bg-red-500/5 border-l-2 border-red-500 rounded-r-lg">
+                                                        <p className="text-[9px] font-black text-red-400 uppercase mb-1">Blockierungs-Grund:</p>
+                                                        <p className="text-xs text-slate-300 italic">"{obj.history[0].blockReason}"</p>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                        </div>
+                    </main>
+                    
+                    {showAddModal && (
+                        <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-6">
+                            <div className="bg-slate-900 w-full max-w-md rounded-[2rem] p-8 border border-white/10 shadow-2xl">
+                                <div className="flex justify-between items-center mb-8">
+                                    <h3 className="text-xl font-black italic text-white">OBJEKT ERÖFFNEN</h3>
+                                    <button onClick={() => setShowAddModal(false)} className="text-slate-500 hover:text-white"><Icon name="x" size={28}/></button>
+                                </div>
+                                <div className="space-y-6">
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Projekt Name</label>
+                                        <input className="w-full bg-slate-950 border border-white/10 p-4 rounded-xl outline-none focus:border-blue-500" placeholder="z.B. Sihlhalde" />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Kunde</label>
+                                        <input className="w-full bg-slate-950 border border-white/10 p-4 rounded-xl outline-none focus:border-blue-500" placeholder="z.B. Meyer AG" />
+                                    </div>
+                                    <button onClick={() => setShowAddModal(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase tracking-widest">Projekt Speichern</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+
+            if (view === 'worker_list') return (
+                <div className="min-h-screen bg-slate-950 pb-20 page-transition">
+                    <header className="p-8 pt-12 flex justify-between items-center">
+                        <div>
+                            <h1 className="text-3xl font-black text-white italic leading-none tracking-tighter">MO-BOARD</h1>
+                            <p className="text-blue-500 text-[9px] font-black uppercase tracking-[0.2em] mt-1">Status: Aktiv</p>
+                        </div>
+                        <button onClick={() => setView('login')} className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center text-slate-500 border border-white/5 active:scale-90"><Icon name="power" size={22}/></button>
+                    </header>
+
+                    <main className="px-6 space-y-8">
+                        <div className="relative">
+                            <input 
+                                type="text" 
+                                placeholder="Auftrag suchen..." 
+                                className="w-full bg-slate-900 border border-white/5 rounded-2xl py-5 pl-12 pr-6 text-base font-bold text-white outline-none focus:border-blue-600 transition-all shadow-xl"
+                                value={workerSearchTerm}
+                                onChange={(e) => setWorkerSearchTerm(e.target.value)}
+                            />
+                            <Icon name="search" size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
+                        </div>
+
+                        <div className="space-y-5">
+                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Offene Aufträge</p>
+                            {objects.filter(o => o.status !== 'finished' && o.name.toLowerCase().includes(workerSearchTerm.toLowerCase())).map(obj => (
+                                <button key={obj.id} onClick={() => { setSelectedObject(obj); setView('worker_edit'); }} className="w-full bg-slate-900/40 rounded-[2rem] border border-white/5 p-8 text-left btn-tactile shadow-xl flex items-center justify-between group">
+                                    <div className="flex-1 mr-4">
+                                        <h3 className="text-xl font-black text-white italic mb-1 truncate">{obj.name}</h3>
+                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{obj.customer}</p>
+                                    </div>
+                                    <div className="w-10 h-10 bg-blue-600/10 rounded-xl flex items-center justify-center text-blue-500 border border-blue-500/20 group-hover:bg-blue-600 group-hover:text-white transition-all">
+                                        <Icon name="chevron-right" size={20}/>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    </main>
+                </div>
+            );
+
+            if (view === 'worker_edit') return (
+                <div className="min-h-screen bg-slate-950 flex flex-col page-transition">
+                    <header className="p-6 sticky top-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center gap-5 border-b border-white/5">
+                        <button onClick={() => { setView('worker_list'); setWorkerSelectedHouse(''); setWorkerBlocked(false); setWorkerBlockReason(''); }} className="w-12 h-12 glass rounded-xl flex items-center justify-center text-blue-500 active:scale-90 transition-all">
+                            <Icon name="arrow-left" size={24}/>
+                        </button>
+                        <div>
+                            <h2 className="text-lg font-black text-white italic tracking-tight truncate max-w-[200px]">{selectedObject?.name}</h2>
+                            <p className="text-[9px] font-black text-slate-500 uppercase">Dateneingabe</p>
+                        </div>
+                    </header>
+
+                    <main className="p-8 flex-1 space-y-10 max-w-xl mx-auto w-full">
+                        <div className="space-y-6">
+                            <div className="space-y-3">
+                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">1. Welches Haus?</label>
+                                <select 
+                                    className="w-full bg-slate-900 border-2 border-slate-800 rounded-2xl p-5 text-xl font-black text-white focus:border-blue-600 outline-none transition-all shadow-2xl"
+                                    value={workerSelectedHouse}
+                                    onChange={(e) => setWorkerSelectedHouse(e.target.value)}
+                                >
+                                    <option value="">WÄHLEN...</option>
+                                    {selectedObject?.houses.map(h => (
+                                        <option key={h.name} value={h.name} disabled={h.current >= h.target}>{h.name.toUpperCase()} ({h.current}/{h.target})</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {workerSelectedHouse && (
+                                <div className="space-y-10 animate-in pt-4">
+                                    <div className="text-center space-y-6">
+                                        <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest">2. Wie viele wurden montiert?</p>
+                                        <div className="flex items-center justify-center gap-8">
+                                            <button onClick={() => setWorkerAmount(Math.max(0, parseInt(workerAmount||0)-1).toString())} className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center text-white border border-white/5 active:scale-90"><Icon name="minus" size={24}/></button>
+                                            <input 
+                                                type="number" 
+                                                inputMode="numeric" 
+                                                className="w-24 bg-transparent text-5xl font-black text-white text-center outline-none" 
+                                                placeholder="0"
+                                                value={workerAmount}
+                                                onChange={(e) => setWorkerAmount(e.target.value)}
+                                            />
+                                            <button onClick={() => setWorkerAmount((parseInt(workerAmount||0)+1).toString())} className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center text-white border border-white/5 active:scale-90"><Icon name="plus" size={24}/></button>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 gap-4">
+                                        <button 
+                                            onClick={() => setWorkerDeliveryFinished(!workerDeliveryFinished)} 
+                                            className={`p-6 rounded-2xl border-2 flex items-center gap-4 transition-all ${workerDeliveryFinished ? 'bg-blue-600 border-blue-400' : 'bg-slate-900/50 border-white/5'}`}
+                                        >
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${workerDeliveryFinished ? 'bg-white text-blue-600' : 'bg-slate-800 text-slate-500'}`}>
+                                                <Icon name="check" size={20}/>
+                                            </div>
+                                            <span className={`text-xs font-black uppercase ${workerDeliveryFinished ? 'text-white' : 'text-slate-400'}`}>Haus komplett fertig</span>
+                                        </button>
+
+                                        <button 
+                                            onClick={() => setWorkerBlocked(!workerBlocked)} 
+                                            className={`p-6 rounded-2xl border-2 flex items-center gap-4 transition-all ${workerBlocked ? 'bg-red-600 border-red-400' : 'bg-slate-900/50 border-white/5'}`}
+                                        >
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${workerBlocked ? 'bg-white text-red-600' : 'bg-slate-800 text-slate-500'}`}>
+                                                <Icon name="alert-triangle" size={20}/>
+                                            </div>
+                                            <span className={`text-xs font-black uppercase ${workerBlocked ? 'text-white' : 'text-slate-400'}`}>Ich bin blockiert</span>
+                                        </button>
+
+                                        {workerBlocked && (
+                                            <div className="animate-in fade-in slide-in-from-top-2 space-y-2">
+                                                <label className="text-[10px] font-black text-red-500 uppercase tracking-widest ml-1">Grund für die Blockierung</label>
+                                                <textarea 
+                                                    className="w-full bg-slate-900 border border-red-500/30 rounded-2xl p-4 text-sm font-medium text-white outline-none focus:border-red-500 min-h-[100px] resize-none"
+                                                    placeholder="Warum konnte nicht montiert werden? (z.B. Material fehlt, Baustelle nicht bereit...)"
+                                                    value={workerBlockReason}
+                                                    onChange={(e) => setWorkerBlockReason(e.target.value)}
+                                                ></textarea>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="pt-6">
+                                        <button 
+                                            onClick={submitWorkerUpdate}
+                                            disabled={(!workerSelectedHouse && !workerBlocked) || (workerBlocked && !workerBlockReason.trim())}
+                                            className="w-full h-20 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-[1.5rem] text-white text-lg font-black shadow-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-4 disabled:opacity-20 uppercase tracking-widest"
+                                        >
+                                            Absenden <Icon name="send" size={20}/>
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </main>
+                </div>
+            );
+
+            return null;
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
