@@ -11,9 +11,24 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&display=swap" rel="stylesheet">
     
+    <!-- Firebase SDKs für Live-Schaltung -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+
+        const firebaseConfig = JSON.parse(__firebase_config);
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        window.FirebaseSDK = { app, db, auth, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query, signInAnonymously, onAuthStateChanged, signInWithCustomToken };
+    </script>
+
     <style>
         :root {
             --primary: #3b82f6;
+            --primary-dark: #2563eb;
             --bg-main: #0f172a;
             --bg-card: #1e293b;
         }
@@ -24,16 +39,27 @@
             color: #f1f5f9;
             -webkit-font-smoothing: antialiased;
         }
+        * { -webkit-tap-highlight-color: transparent; }
+
         .glass {
             background: rgba(30, 41, 59, 0.7);
             backdrop-filter: blur(12px);
             -webkit-backdrop-filter: blur(12px);
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
+
+        .btn-tactile {
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .btn-tactile:active {
+            transform: scale(0.96);
+        }
+
         .card-gradient {
             background: linear-gradient(135deg, rgba(30, 41, 59, 1) 0%, rgba(15, 23, 42, 1) 100%);
             border: 1px solid rgba(255, 255, 255, 0.05);
         }
+
         .page-transition {
             animation: slideUp 0.3s ease-out;
         }
@@ -41,124 +67,120 @@
             from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
-        ::-webkit-scrollbar { display: none; }
+
+        ::-webkit-scrollbar {
+            display: none;
+        }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
-
-        // Aktualisierte Firebase Konfiguration laut Benutzervorgabe
-        const firebaseConfig = {
-            apiKey: "AIzaSyCW_ix8uO6872p3jcuLvnFpF_EMr8gYdIw",
-            authDomain: "montage-pe.firebaseapp.com",
-            projectId: "montage-pe",
-            storageBucket: "montage-pe.firebasestorage.app",
-            messagingSenderId: "535448567697",
-            appId: "1:535448567697:web:e57520e9c568939ab32430"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
-
-        // Globaler Export für den React-Teil
-        window.FB = { 
-            db, auth, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, 
-            query, writeBatch, serverTimestamp, signInAnonymously, signInWithCustomToken, onAuthStateChanged 
-        };
-    </script>
-
     <script type="text/babel">
-        const { useState, useEffect, useMemo, useRef } = React;
-
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const ADMIN_PIN = "8852";
-        const WORKER_PIN = "8623";
+        const { useState, useEffect, useMemo, useRef, memo } = React;
 
         const translations = {
-            de: { search: "Suche Adresse...", partial: "Teilweise montiert", finished: "Fertig montiert", blocked: "Blockiert / Problem", openItems: "Wie viele Elemente sind noch offen?", submit: "Status Senden", cancel: "Abbrechen", back: "Zurück" },
-            sq: { search: "Kërko adresën...", partial: "Montuar pjesërisht", finished: "Montimi përfundoi", blocked: "E bllokuar / Problem", openItems: "Sa elemente janë ende të hapura?", submit: "Dërgo Statusin", cancel: "Anuloj", back: "Mbrapa" },
-            it: { search: "Cerca indirizzo...", partial: "Parzialmente montato", finished: "Montaggio completato", blocked: "Bloccato / Problema", openItems: "Quanti elementi sind noch offen?", submit: "Invia Stato", cancel: "Annulla", back: "Indietro" }
+            de: { search: "Suche Adresse...", partial: "Teilweise montiert", finished: "Fertig montiert", blocked: "Blockiert / Problem", openItems: "Wie viele Elemente sind noch offen?", reason: "Grund...", submit: "Status Senden", cancel: "Abbrechen", placeholderNum: "Zahl...", back: "Zurück", eleOffen: "Elemente offen", eleMontiert: "ELE montiert", house: "Haus" },
+            sq: { search: "Kërko adresën...", partial: "Montuar pjesërisht", finished: "Montimi përfundoi", blocked: "E bllokuar / Problem", openItems: "Sa elemente janë ende të hapura?", reason: "Arsyeja...", submit: "Dërgo Statusin", cancel: "Anuloj", placeholderNum: "Numri...", back: "Mbrapa", eleOffen: "Elemente hapur", eleMontiert: "ELE të montuara", house: "Shtëpia" },
+            it: { search: "Cerca indirizzo...", partial: "Parzialmente montato", finished: "Montaggio completato", blocked: "Bloccato / Problema", openItems: "Quanti elementi sono ancora aperti?", reason: "Motivo...", submit: "Invia Stato", cancel: "Annulla", placeholderNum: "Numero...", back: "Indietro", eleOffen: "Elementi aperti", eleMontiert: "ELE montati", house: "Casa" }
         };
 
-        const Icon = ({ name, size = 24, className = "" }) => {
+        const Icon = memo(({ name, size = 24, className = "" }) => {
             const iconRef = useRef(null);
             useEffect(() => {
                 if (window.lucide && iconRef.current) {
+                    iconRef.current.innerHTML = '';
+                    const i = document.createElement('i');
+                    i.setAttribute('data-lucide-name', name);
+                    iconRef.current.appendChild(i);
                     window.lucide.createIcons({
                         attrs: { class: className, style: `width: ${size}px; height: ${size}px;` },
                         nameAttr: 'data-lucide-name'
                     });
                 }
             }, [name, className, size]);
-            return <span className={`inline-flex items-center justify-center shrink-0 ${className}`} style={{ width: size, height: size }}><i ref={iconRef} data-lucide-name={name}></i></span>;
-        };
+            return <span ref={iconRef} className={`inline-flex items-center justify-center shrink-0 ${className}`} style={{ width: size, height: size }}></span>;
+        });
 
         const formatDate = (isoStr) => {
             if (!isoStr) return "N/A";
             const d = new Date(isoStr);
-            return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
+            return isNaN(d.getTime()) ? "N/A" : d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
         };
+
+        const isExpiredWorkdays = (isoDate, daysLimit = 5) => {
+            if (!isoDate) return false;
+            let current = new Date(isoDate);
+            let now = new Date();
+            let count = 0;
+            while (current < now) {
+                current.setDate(current.getDate() + 1);
+                const day = current.getDay();
+                if (day !== 0 && day !== 6) count++;
+                if (count > daysLimit) return true;
+            }
+            return false;
+        };
+
+        const ADMIN_PIN = "8852";
+        const WORKER_PIN = "8623";
 
         function App() {
             const [pin, setPin] = useState('');
             const [view, setView] = useState('login'); 
             const [searchTerm, setSearchTerm] = useState('');
+            const [workerSearchTerm, setWorkerSearchTerm] = useState('');
             const [showImportModal, setShowImportModal] = useState(false);
             const [importText, setImportText] = useState('');
             const [importSummary, setImportSummary] = useState(null);
             const [selectedObject, setSelectedObject] = useState(null);
-            const [lang, setLang] = useState('de');
-            const [objects, setObjects] = useState([]);
             const [user, setUser] = useState(null);
-            const [workerStatusMode, setWorkerStatusMode] = useState('');
+            const [lang, setLang] = useState('de');
+            const [adminFilter, setAdminFilter] = useState('all'); 
+            const [workerStatusMode, setWorkerStatusMode] = useState(''); 
             const [workerRemaining, setWorkerRemaining] = useState('');
+            const [workerBlockReason, setWorkerBlockReason] = useState('');
+            const [objects, setObjects] = useState([]);
 
-            // Auth & Echtzeit-Synchronisierung
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'montage-pe';
+            const t = translations[lang];
+
+            // LIVE INITIALISIERUNG
             useEffect(() => {
-                const initAuth = async () => {
-                    const { auth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.FB;
+                const initLiveSync = async () => {
+                    if (!window.FirebaseSDK) return;
+                    const { auth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, db, collection, onSnapshot, query } = window.FirebaseSDK;
                     
+                    // Auth Prozess
                     if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        await signInWithCustomToken(auth, __initial_auth_token).catch(() => signInAnonymously(auth));
+                        await signInWithCustomToken(auth, __initial_auth_token);
                     } else {
                         await signInAnonymously(auth);
                     }
 
-                    onAuthStateChanged(auth, (u) => {
+                    const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
                         setUser(u);
+                        if (u) {
+                            // Echtzeit-Daten-Stream
+                            const collRef = collection(db, 'artifacts', appId, 'public', 'data', 'objects');
+                            const q = query(collRef);
+                            const unsubscribeData = onSnapshot(q, (snapshot) => {
+                                const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                                const activeData = data.filter(obj => {
+                                    if (obj.status === 'finished' && obj.finishedAt) {
+                                        return !isExpiredWorkdays(obj.finishedAt, 5);
+                                    }
+                                    return true;
+                                });
+                                setObjects(activeData);
+                            }, (err) => console.error("Sync Fehler:", err));
+                            return () => unsubscribeData();
+                        }
                     });
+                    return () => unsubscribeAuth();
                 };
-
-                const interval = setInterval(() => {
-                    if (window.FB) {
-                        initAuth();
-                        clearInterval(interval);
-                    }
-                }, 100);
-                return () => clearInterval(interval);
-            }, []);
-
-            useEffect(() => {
-                if (!user || !window.FB) return;
-                const { db, collection, onSnapshot, query } = window.FB;
-                
-                const collRef = collection(db, 'artifacts', appId, 'public', 'data', 'objects');
-                
-                const unsubscribe = onSnapshot(query(collRef), (snapshot) => {
-                    const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    setObjects(items);
-                }, (err) => {
-                    console.error("Firestore Error:", err);
-                });
-                
-                return () => unsubscribe();
-            }, [user]);
+                initLiveSync();
+            }, [appId]);
 
             const handleLogin = (digit) => {
                 const newPin = pin + digit;
@@ -171,90 +193,123 @@
             };
 
             const parseDispoLine = (line, currentDay) => {
-                if (!line.trim().toUpperCase().startsWith("LIEFERUNG")) return null;
-                const content = line.trim().replace(/^LIEFERUNG\s*/i, "").trim();
+                const trimmed = line.trim();
+                if (!trimmed.toUpperCase().startsWith("LIEFERUNG")) return null;
+                const content = trimmed.replace(/^LIEFERUNG\s*/i, "").trim();
                 const addressRegex = /([A-ZÄÖÜa-zäöüß\s\.\-]+\s\d*[a-z]?,\s\d{4,5}\s[A-ZÄÖÜa-zäöüß\s\.\-]+)/;
                 const addressMatch = content.match(addressRegex);
-                const address = addressMatch ? addressMatch[0].trim() : content;
-                const customer = content.split(address)[0]?.trim().replace(/,$/, '') || "Kunde";
-                const eleMatch = content.match(/(\d+)\s?ELE/i);
-                const targetCount = eleMatch ? parseInt(eleMatch[1]) : 1;
-                const houseMatch = content.match(/(Haus\s?\d+)/i);
-
+                let address = addressMatch ? addressMatch[0].trim() : content;
+                const parts = content.split(address);
+                let customer = parts[0]?.trim().replace(/,$/, '') || "Kunde";
+                let remainder = parts[1]?.trim() || "";
+                const eleMatch = remainder.match(/(\d+)\s?ELE/i);
+                const houseMatch = remainder.match(/(Haus\s?\d+)/i);
+                
                 return {
-                    address, customer, target: targetCount, current: 0,
+                    id: `obj-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    name: address,
+                    customer,
+                    address,
                     houseInfo: houseMatch ? houseMatch[0] : "Gesamtmontage",
-                    deliveryDate: currentDay.toISOString(), status: 'active',
-                    timestamp: window.FB.serverTimestamp()
+                    target: eleMatch ? parseInt(eleMatch[1]) : 1,
+                    current: 0,
+                    lastRemaining: null, 
+                    blockReason: null, 
+                    deliveryDate: currentDay.toISOString(),
+                    status: 'active',
+                    history: []
                 };
             };
 
             const processTextImport = async () => {
-                if (!importText.trim() || !window.FB) return;
-                const { db, doc, collection, writeBatch } = window.FB;
-
                 const lines = importText.split(/\r?\n/);
                 let currentDay = new Date();
-                let currentDayLabel = "Heute";
-                const batch = writeBatch(db);
-                let count = 0;
-                const summaryMap = {};
-
+                let currentDayLabel = "Unbekannt";
+                const newObjects = [];
+                const summaryEntries = [];
+                const dayRegex = /(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\s+(\d{2}\.\d{2}\.\d{4})/i;
+                
                 lines.forEach(line => {
-                    const dayMatch = line.match(/(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\s+(\d{2}\.\d{2}\.\d{4})/i);
+                    const trimmed = line.trim();
+                    if (!trimmed) return;
+                    const dayMatch = trimmed.match(dayRegex);
                     if (dayMatch) {
-                        currentDayLabel = dayMatch[0];
-                        const [d, m, y] = dayMatch[2].split('.');
+                        const [_, dName, dStr] = dayMatch;
+                        const [d, m, y] = dStr.split('.');
                         currentDay = new Date(y, m - 1, d);
+                        currentDayLabel = `${dName} ${dStr}`;
                         return;
                     }
-                    if (line.trim().toUpperCase().startsWith("LIEFERUNG")) {
-                        const obj = parseDispoLine(line, currentDay);
+                    if (trimmed.toUpperCase().startsWith("LIEFERUNG")) {
+                        const obj = parseDispoLine(trimmed, currentDay);
                         if (obj) {
-                            const newDocRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'objects'));
-                            batch.set(newDocRef, obj);
-                            summaryMap[currentDayLabel] = (summaryMap[currentDayLabel] || 0) + 1;
-                            count++;
+                            newObjects.push(obj);
+                            let entry = summaryEntries.find(e => e.label === currentDayLabel);
+                            if (!entry) summaryEntries.push({ label: currentDayLabel, count: 1 });
+                            else entry.count++;
                         }
                     }
                 });
 
-                if (count > 0) {
-                    await batch.commit();
-                    setImportSummary({ 
-                        days: Object.entries(summaryMap).map(([label, count]) => ({ label, count })),
-                        total: count 
-                    });
+                if (newObjects.length > 0) {
+                    const { db, doc, setDoc } = window.FirebaseSDK;
+                    await Promise.all(newObjects.map(obj => 
+                        setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), obj)
+                    ));
+                    setImportSummary({ days: summaryEntries, total: newObjects.length });
+                }
+                setImportText(''); setShowImportModal(false);
+            };
+
+            const submitWorkerUpdate = async () => {
+                const now = new Date().toISOString();
+                const { db, doc, updateDoc } = window.FirebaseSDK;
+                const obj = selectedObject;
+                let updates = { history: [{ date: now, mode: workerStatusMode, detail: workerStatusMode === 'blocked' ? workerBlockReason : workerRemaining }, ...(obj.history || [])] };
+                
+                if (workerStatusMode === 'finished') {
+                    updates = { ...updates, current: obj.target, status: 'finished', finishedAt: now, lastRemaining: 0, blockReason: null };
+                } else if (workerStatusMode === 'blocked') {
+                    updates = { ...updates, status: 'blocked', blockReason: workerBlockReason };
+                } else if (workerStatusMode === 'partial') {
+                    const open = parseInt(workerRemaining) || 0;
+                    updates = { ...updates, current: Math.max(0, obj.target - open), status: 'active', lastRemaining: open, blockReason: null };
                 }
                 
-                setImportText('');
-                setShowImportModal(false);
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), updates);
+                setWorkerStatusMode(''); setWorkerRemaining(''); setWorkerBlockReason(''); setView('worker_list');
             };
 
             const stats = useMemo(() => {
-                let total = 0, done = 0, blocked = 0;
-                objects.forEach(o => { total += o.target; done += o.current; if (o.status === 'blocked') blocked++; });
-                return { open: objects.filter(o => o.status === 'active').length, percent: total > 0 ? Math.round((done/total)*100) : 0, blocked };
+                let total = 0, done = 0, blocked = 0, partial = 0;
+                objects.forEach(obj => {
+                    total += obj.target; done += obj.current;
+                    if (obj.status === 'blocked') blocked++;
+                    if (obj.lastRemaining > 0 && obj.status !== 'finished' && obj.status !== 'blocked') partial++;
+                });
+                return { open: objects.filter(o => o.status === 'active').length, percent: total > 0 ? Math.round((done/total)*100) : 0, blocked, partial };
             }, [objects]);
 
             const filteredObjects = useMemo(() => {
-                return [...objects].sort((a,b) => new Date(a.deliveryDate) - new Date(b.deliveryDate))
-                              .filter(o => o.address.toLowerCase().includes(searchTerm.toLowerCase()));
-            }, [objects, searchTerm]);
+                let list = objects;
+                if (adminFilter === 'blocked') list = list.filter(o => o.status === 'blocked');
+                else if (adminFilter === 'partial') list = list.filter(o => o.lastRemaining > 0 && o.status !== 'finished' && o.status !== 'blocked');
+                return list.filter(o => o.address.toLowerCase().includes(searchTerm.toLowerCase()));
+            }, [objects, adminFilter, searchTerm]);
 
             if (view === 'login') return (
                 <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-slate-950">
-                    <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-xl mb-6"><Icon name="shield-check" size={32} className="text-white" /></div>
-                    <h1 className="text-2xl font-black text-white italic mb-10 uppercase">Montage Manager</h1>
+                    <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-xl mb-6">
+                        <Icon name="shield-check" size={32} className="text-white" />
+                    </div>
+                    <h1 className="text-2xl font-black text-white italic mb-10 uppercase tracking-tight">Montage Manager</h1>
                     <div className="flex gap-3 mb-10">
-                        {[0,1,2,3].map(i => <div key={i} className={`w-3 h-3 rounded-full border-2 border-blue-500 transition-all ${pin.length > i ? 'bg-blue-500 scale-110' : 'opacity-20'}`} />)}
+                        {[0,1,2,3].map(i => <div key={i} className={`w-3 h-3 rounded-full border-2 border-blue-500 transition-all ${pin.length > i ? 'bg-blue-500 scale-110' : 'bg-transparent opacity-20'}`} />)}
                     </div>
                     <div className="grid grid-cols-3 gap-4 w-full max-w-xs">
-                        {[1,2,3,4,5,6,7,8,9, 'delete', 0].map(n => (
-                            <button key={n} onClick={() => n === 'delete' ? setPin('') : handleLogin(n.toString())} className="h-16 glass rounded-xl text-xl font-bold text-white border border-white/5 active:scale-90 transition-transform">
-                                {n === 'delete' ? <Icon name="delete" /> : n}
-                            </button>
-                        ))}
+                        {[1,2,3,4,5,6,7,8,9].map(n => <button key={n} onClick={() => handleLogin(n.toString())} className="h-16 glass rounded-xl text-xl font-black text-white active:scale-90 border border-white/5">{n}</button>)}
+                        <button onClick={() => setPin('')} className="h-16 flex items-center justify-center text-slate-500"><Icon name="delete" size={24}/></button>
+                        <button onClick={() => handleLogin('0')} className="h-16 glass rounded-xl text-xl font-black text-white active:scale-90 border border-white/5">0</button>
                     </div>
                 </div>
             );
@@ -262,76 +317,80 @@
             if (view === 'dashboard') return (
                 <div className="min-h-screen bg-slate-950 pb-20 page-transition">
                     <nav className="p-4 sticky top-0 z-40 glass border-b border-white/10 flex justify-between items-center">
-                        <h2 className="text-sm font-black text-white uppercase italic tracking-widest">Admin Dashboard</h2>
+                        <h2 className="text-sm font-black text-white italic uppercase tracking-widest">Admin Panel (LIVE)</h2>
                         <button onClick={() => setView('login')} className="p-2 text-slate-400"><Icon name="log-out" size={18}/></button>
                     </nav>
                     <main className="p-4 max-w-3xl mx-auto space-y-6">
-                        <div className="grid grid-cols-3 gap-3">
-                            <div className="card-gradient p-3 rounded-xl border border-white/5 text-center">
-                                <p className="text-[8px] font-black text-slate-500 uppercase">Offen</p>
-                                <div className="text-xl font-black text-white">{stats.open}</div>
+                        <div className="grid grid-cols-4 gap-2">
+                            <div onClick={() => setAdminFilter('all')} className={`card-gradient p-2 rounded-xl border transition-all cursor-pointer ${adminFilter === 'all' ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'border-white/5'}`}>
+                                <p className="text-[7px] font-black text-slate-500 uppercase">Aktiv</p>
+                                <div className="text-lg font-black text-white">{stats.open}</div>
                             </div>
-                            <div className="card-gradient p-3 rounded-xl border border-white/5 text-center">
-                                <p className="text-[8px] font-black text-slate-500 uppercase">Blockiert</p>
-                                <div className="text-xl font-black text-red-500">{stats.blocked}</div>
+                            <div onClick={() => setAdminFilter(adminFilter === 'blocked' ? 'all' : 'blocked')} className={`card-gradient p-2 rounded-xl border transition-all cursor-pointer ${adminFilter === 'blocked' ? 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.3)]' : 'border-white/5'}`}>
+                                <p className="text-[7px] font-black text-slate-500 uppercase">Blockiert</p>
+                                <div className="text-lg font-black text-red-500">{stats.blocked}</div>
                             </div>
-                            <div className="card-gradient p-3 rounded-xl border border-white/5 text-center">
-                                <p className="text-[8px] font-black text-slate-500 uppercase">Fortschritt</p>
-                                <div className="text-xl font-black text-blue-500">{stats.percent}%</div>
+                            <div onClick={() => setAdminFilter(adminFilter === 'partial' ? 'all' : 'partial')} className={`card-gradient p-2 rounded-xl border transition-all cursor-pointer ${adminFilter === 'partial' ? 'border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.3)]' : 'border-white/5'}`}>
+                                <p className="text-[7px] font-black text-slate-500 uppercase leading-tight">Teilweise</p>
+                                <div className="text-lg font-black text-orange-500">{stats.partial}</div>
+                            </div>
+                            <div className="card-gradient p-2 rounded-xl border border-white/5">
+                                <p className="text-[7px] font-black text-slate-500 uppercase">Status</p>
+                                <div className="text-lg font-black text-blue-500">{stats.percent}%</div>
                             </div>
                         </div>
 
-                        <button onClick={() => setShowImportModal(true)} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg active:scale-95 transition-all">Dispo-Text Importieren</button>
+                        <button onClick={() => setShowImportModal(true)} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-900/20">Dispo-Text Importieren</button>
 
                         {importSummary && (
                             <div className="bg-blue-900/40 border border-blue-500/50 rounded-xl p-4 animate-in fade-in slide-in-from-top-4 duration-500">
                                 <div className="flex items-center justify-between mb-2">
-                                    <h5 className="text-[10px] font-black text-blue-400 uppercase italic tracking-widest flex items-center gap-2">
-                                        <Icon name="check-circle" size={14}/> Import Erfolgreich
-                                    </h5>
+                                    <h5 className="text-[10px] font-black text-blue-400 uppercase italic tracking-widest flex items-center gap-2"><Icon name="check-circle" size={14}/> Import Erfolgreich</h5>
                                     <button onClick={() => setImportSummary(null)} className="text-slate-500"><Icon name="x" size={14}/></button>
                                 </div>
                                 <div className="space-y-1">
-                                    {importSummary.days.map((day, i) => (
-                                        <p key={i} className="text-[11px] font-bold text-slate-200">
-                                            {day.label}: <span className="text-blue-400">{day.count} Objekte</span>
-                                        </p>
-                                    ))}
-                                    <div className="pt-2 mt-1 border-t border-white/5 text-xs font-black text-white italic">
-                                        Gesamt: {importSummary.total} Lieferungen hinzugefügt
-                                    </div>
+                                    {importSummary.days.map((day, i) => <p key={i} className="text-[11px] font-bold text-slate-200">{day.label}: <span className="text-blue-400">{day.count} Objekte</span></p>)}
+                                    <div className="pt-2 mt-1 border-t border-white/5 text-xs font-black text-white italic">Gesamt: {importSummary.total} hinzugefügt</div>
                                 </div>
                             </div>
                         )}
+                        
+                        <div className="flex items-center justify-between px-1">
+                             <h4 className="text-[10px] font-black text-slate-400 uppercase italic">Objekte</h4>
+                             <input type="text" placeholder="Suche..." className="bg-transparent text-[10px] font-bold text-white border-b border-white/10 outline-none w-24" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                        </div>
 
                         <div className="space-y-3">
-                            <div className="flex justify-between items-center px-1">
-                                <h4 className="text-[10px] font-black text-slate-500 uppercase italic">Objektliste</h4>
-                                <input type="text" placeholder="Suche..." className="bg-transparent border-b border-white/10 text-[10px] text-white outline-none w-32" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-                            </div>
-                            {filteredObjects.length === 0 ? (
-                                <p className="text-center py-10 text-slate-600 text-xs italic font-bold uppercase tracking-widest">Keine Objekte vorhanden</p>
-                            ) : filteredObjects.map(obj => (
-                                <div key={obj.id} className="card-gradient rounded-xl border border-white/5 p-4 relative">
-                                    <button onClick={async () => { if(confirm('Löschen?')) { await window.FB.deleteDoc(window.FB.doc(window.FB.db, 'artifacts', appId, 'public', 'data', 'objects', obj.id)); }}} className="absolute top-4 right-4 text-slate-600 hover:text-red-500"><Icon name="trash-2" size={14}/></button>
-                                    <h3 className="text-xs font-black text-white uppercase italic mb-1">{obj.address}</h3>
+                            {filteredObjects.map(obj => (
+                                <div key={obj.id} className={`card-gradient rounded-xl border p-4 relative transition-all ${obj.status === 'blocked' ? 'border-red-500/50' : 'border-white/5'}`}>
+                                    <button onClick={async () => {
+                                        if(confirm('Möchten Sie dieses Objekt wirklich löschen?')) {
+                                            await window.FirebaseSDK.deleteDoc(window.FirebaseSDK.doc(window.FirebaseSDK.db, 'artifacts', appId, 'public', 'data', 'objects', obj.id));
+                                        }
+                                    }} className="absolute top-4 right-4 text-slate-600 p-1"><Icon name="trash-2" size={14}/></button>
+                                    <h3 className="text-xs font-black text-white italic uppercase mb-1">{obj.address}</h3>
                                     <p className="text-[10px] font-bold text-blue-400 mb-2">{obj.customer} | {obj.houseInfo}</p>
-                                    <div className="flex justify-between items-end">
+                                    <div className="flex items-center justify-between">
                                         <span className="text-[8px] text-slate-500 font-bold uppercase">{formatDate(obj.deliveryDate)}</span>
-                                        <div className="flex items-center gap-2">
-                                            {obj.status === 'finished' && <Icon name="check-circle" size={12} className="text-green-500" />}
-                                            <span className={`text-[10px] font-black ${obj.status === 'finished' ? 'text-green-500' : 'text-white'}`}>{obj.current}/{obj.target} ELE</span>
-                                        </div>
+                                        <span className="text-[10px] font-black text-white">{obj.current}/{obj.target} ELE</span>
                                     </div>
+                                    <div className="w-full bg-slate-900 h-1.5 rounded-full mt-2 overflow-hidden">
+                                        <div className={`h-full ${obj.status === 'blocked' ? 'bg-red-500' : 'bg-blue-600'}`} style={{width: `${(obj.current/obj.target)*100}%`}}></div>
+                                    </div>
+                                    {obj.status === 'blocked' && obj.blockReason && (
+                                        <div className="mt-3 bg-red-500/10 border border-red-500/30 p-2 rounded-lg">
+                                            <p className="text-[8px] font-black text-red-500 uppercase mb-1">Problem:</p>
+                                            <p className="text-[10px] font-bold text-slate-200">{obj.blockReason}</p>
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
                     </main>
-
                     {showImportModal && (
                         <div className="fixed inset-0 z-50 bg-slate-950/95 p-6 flex flex-col">
                             <h3 className="text-sm font-black text-white uppercase italic mb-4">Text Import</h3>
-                            <textarea className="flex-1 w-full bg-slate-900 border border-white/10 p-4 rounded-xl text-[11px] text-white outline-none font-mono" placeholder="Kopiere hier die Dispo-Liste hinein..." value={importText} onChange={(e) => setImportText(e.target.value)}></textarea>
+                            <textarea className="flex-1 w-full bg-slate-900 border border-white/10 p-4 rounded-xl text-[11px] text-white outline-none font-mono" placeholder="Kopiere hier die Dispo-Liste hinein (LIEFERUNG...)" value={importText} onChange={(e) => setImportText(e.target.value)}></textarea>
                             <div className="grid grid-cols-2 gap-4 mt-6">
                                 <button onClick={() => setShowImportModal(false)} className="py-4 text-slate-400 font-black uppercase text-[10px]">Abbrechen</button>
                                 <button onClick={processTextImport} className="bg-indigo-600 text-white py-4 rounded-xl font-black uppercase text-[10px]">Import starten</button>
@@ -342,83 +401,62 @@
             );
 
             if (view === 'worker_list') return (
-                <div className="min-h-screen bg-slate-950 p-4 pb-20">
-                    <div className="flex justify-between items-center mb-6">
-                        <h1 className="text-xl font-black text-white italic uppercase tracking-tighter">MO-BOARD</h1>
-                        <button onClick={() => setView('login')} className="text-slate-500"><Icon name="power" size={20}/></button>
-                    </div>
-                    <div className="flex gap-2 mb-4 justify-center">
-                        {['de', 'sq', 'it'].map(l => <button key={l} onClick={() => setLang(l)} className={`px-4 py-1 rounded-lg text-[10px] font-black border ${lang === l ? 'bg-blue-600 border-blue-400 text-white' : 'bg-slate-900 border-white/10 text-slate-500'}`}>{l.toUpperCase()}</button>)}
-                    </div>
-                    <div className="space-y-3">
-                        {objects.filter(o => o.status !== 'finished').length === 0 ? (
-                            <p className="text-center py-20 text-slate-500 text-xs font-black uppercase italic">Alles fertig montiert! 🚀</p>
-                        ) : objects.filter(o => o.status !== 'finished').map(obj => (
-                            <button key={obj.id} onClick={() => { setSelectedObject(obj); setView('worker_edit'); }} className="w-full card-gradient border border-white/5 p-4 rounded-xl text-left flex justify-between items-center active:scale-[0.98] transition-transform">
+                <div className="min-h-screen bg-slate-950 pb-20 page-transition">
+                    <header className="p-6 flex flex-col gap-4 border-b border-white/5">
+                        <div className="flex justify-between items-center">
+                            <h1 className="text-xl font-black text-white italic uppercase tracking-tighter">MO-BOARD</h1>
+                            <button onClick={() => setView('login')} className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-slate-500"><Icon name="power" size={18}/></button>
+                        </div>
+                        <div className="flex gap-2 justify-center">
+                            {['de', 'sq', 'it'].map(l => <button key={l} onClick={() => setLang(l)} className={`px-3 py-1 rounded-lg text-[10px] font-bold border transition-all ${lang === l ? 'bg-blue-600 border-blue-400 text-white' : 'bg-slate-900 border-white/10 text-slate-400'}`}>{l.toUpperCase()}</button>)}
+                        </div>
+                    </header>
+                    <main className="p-4 space-y-3">
+                        <input type="text" placeholder={t.search} className="w-full bg-slate-900 border border-white/5 rounded-xl py-3 px-4 text-sm font-bold text-white outline-none" value={workerSearchTerm} onChange={(e) => setWorkerSearchTerm(e.target.value)} />
+                        {objects.filter(o => o.status !== 'finished' && o.address.toLowerCase().includes(workerSearchTerm.toLowerCase())).map(obj => (
+                            <button key={obj.id} onClick={() => { setSelectedObject(obj); setView('worker_edit'); }} className="w-full bg-slate-900/50 rounded-xl border border-white/5 p-4 text-left flex justify-between items-center">
                                 <div>
-                                    <h3 className="text-[11px] font-black text-white uppercase italic">{obj.address}</h3>
+                                    <h3 className="text-xs font-black text-white uppercase italic truncate max-w-[200px]">{obj.address}</h3>
                                     <p className="text-[9px] font-bold text-slate-500 uppercase">{obj.customer} • {obj.houseInfo}</p>
                                 </div>
-                                <div className="flex flex-col items-end">
-                                    <span className="text-[10px] font-black text-blue-500">{obj.current}/{obj.target}</span>
-                                    <Icon name="chevron-right" size={16} className="text-slate-600" />
-                                </div>
+                                <Icon name="chevron-right" size={16} className="text-blue-500" />
                             </button>
                         ))}
-                    </div>
+                    </main>
                 </div>
             );
 
             if (view === 'worker_edit') return (
-                <div className="min-h-screen bg-slate-950 p-6 flex flex-col items-center">
-                    <header className="w-full flex items-center gap-4 mb-10">
-                        <button onClick={() => setView('worker_list')} className="p-2 bg-slate-900 rounded-xl text-blue-500"><Icon name="arrow-left"/></button>
-                        <h2 className="text-xs font-black text-white uppercase italic truncate">{selectedObject?.address}</h2>
+                <div className="min-h-screen bg-slate-950 flex flex-col page-transition">
+                    <header className="p-4 flex items-center gap-4 border-b border-white/5">
+                        <button onClick={() => { setView('worker_list'); setWorkerStatusMode(''); }} className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-blue-500"><Icon name="arrow-left" size={20}/></button>
+                        <h2 className="text-[10px] font-black text-white uppercase italic truncate">{selectedObject?.address}</h2>
                     </header>
-                    <div className="w-full max-w-sm space-y-4">
-                        <button onClick={() => setWorkerStatusMode('partial')} className={`w-full p-6 rounded-2xl border text-left flex flex-col gap-2 transition-all ${workerStatusMode === 'partial' ? 'bg-blue-600 border-blue-400' : 'bg-slate-900 border-white/5'}`}>
-                            <span className="text-[10px] font-black uppercase text-white">{translations[lang].partial}</span>
+                    <main className="p-6 space-y-4 max-w-md mx-auto w-full">
+                        <button onClick={() => setWorkerStatusMode('partial')} className={`w-full p-5 rounded-2xl border flex flex-col gap-2 transition-all ${workerStatusMode === 'partial' ? 'bg-blue-600 border-blue-400' : 'bg-slate-900/50 border-white/5'}`}>
+                            <span className="text-[10px] font-black uppercase text-white tracking-widest">{t.partial}</span>
                             {workerStatusMode === 'partial' && (
-                                <div className="mt-2" onClick={(e) => e.stopPropagation()}>
-                                    <p className="text-[8px] font-bold text-white/50 uppercase mb-1">{translations[lang].openItems}</p>
-                                    <input type="number" className="w-full bg-black/30 border border-white/10 rounded-lg p-3 text-white font-black outline-none focus:border-blue-300" value={workerRemaining} onChange={(e) => setWorkerRemaining(e.target.value)} autoFocus />
+                                <div className="mt-2 w-full space-y-2">
+                                    <input type="number" className="w-full bg-white/10 rounded-lg p-3 text-white font-black text-center outline-none border border-white/20" placeholder={t.placeholderNum} value={workerRemaining} onChange={(e) => setWorkerRemaining(e.target.value)} onClick={(e) => e.stopPropagation()} />
                                 </div>
                             )}
                         </button>
-                        <button onClick={() => setWorkerStatusMode('finished')} className={`w-full p-6 rounded-2xl border flex justify-between items-center transition-all ${workerStatusMode === 'finished' ? 'bg-green-600 border-green-400' : 'bg-slate-900 border-white/5'}`}>
-                            <span className="text-[10px] font-black uppercase text-white">{translations[lang].finished}</span>
-                            <Icon name="check-circle" size={20}/>
+                        <button onClick={() => setWorkerStatusMode('finished')} className={`w-full p-5 rounded-2xl border flex items-center justify-between transition-all ${workerStatusMode === 'finished' ? 'bg-green-600 border-green-400' : 'bg-slate-900/50 border-white/5'}`}>
+                            <span className="text-[10px] font-black uppercase text-white tracking-widest">{t.finished}</span>
+                            <Icon name="check-circle" size={20} className="text-white"/>
                         </button>
-                        <button onClick={async () => {
-                             if (!workerStatusMode || !window.FB) return;
-                             const { db, doc, updateDoc, serverTimestamp } = window.FB;
-                             const obj = selectedObject;
-                             let current = obj.current, status = 'active';
-                             
-                             if(workerStatusMode === 'finished') { 
-                                current = obj.target; 
-                                status = 'finished'; 
-                             } else if(workerStatusMode === 'partial') { 
-                                current = Math.max(0, obj.target - (parseInt(workerRemaining) || 0)); 
-                             }
-
-                             await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), {
-                                current, status, lastUpdate: serverTimestamp()
-                             });
-                             
-                             setView('worker_list'); 
-                             setWorkerStatusMode(''); 
-                             setWorkerRemaining('');
-                        }} className="w-full py-5 bg-white text-black rounded-2xl font-black uppercase text-[11px] shadow-xl mt-6 active:scale-95 transition-transform">{translations[lang].submit}</button>
-                    </div>
+                        <button onClick={() => setWorkerStatusMode('blocked')} className={`w-full p-5 rounded-2xl border flex flex-col gap-2 transition-all ${workerStatusMode === 'blocked' ? 'bg-red-600 border-red-400' : 'bg-slate-900/50 border-white/5'}`}>
+                            <span className="text-[10px] font-black uppercase text-white tracking-widest">{t.blocked}</span>
+                            {workerStatusMode === 'blocked' && <textarea className="mt-2 w-full bg-white/10 rounded-lg p-3 text-white text-[10px] font-bold outline-none border border-white/20 h-24" placeholder={t.reason} value={workerBlockReason} onChange={(e) => setWorkerBlockReason(e.target.value)} onClick={(e) => e.stopPropagation()}></textarea>}
+                        </button>
+                        {workerStatusMode && <button onClick={submitWorkerUpdate} className="w-full py-5 bg-white text-black rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl mt-6 active:scale-95">{t.submit}</button>}
+                    </main>
                 </div>
             );
-
             return null;
         }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
     </script>
 </body>
 </html>
