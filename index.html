@@ -49,14 +49,14 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query, writeBatch, serverTimestamp, getDocs } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
 
-        // Nutze die vom System bereitgestellte Konfiguration um Permission-Errors zu vermeiden
+        // Konfiguration: Falls __firebase_config fehlt (z.B. auf GitHub), nutze deine Projektdaten
         const firebaseConfig = typeof __firebase_config !== 'undefined' 
             ? JSON.parse(__firebase_config) 
             : {
-                apiKey: "", 
+                apiKey: "", // Hier ggf. deinen Key eintragen falls lokal genutzt
                 authDomain: "montage-pe.firebaseapp.com",
                 projectId: "montage-pe",
                 storageBucket: "montage-pe.firebasestorage.app",
@@ -71,21 +71,21 @@
         // Globaler Export für den React-Teil
         window.FB = { 
             db, auth, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, 
-            query, writeBatch, serverTimestamp, signInAnonymously, signInWithCustomToken, onAuthStateChanged 
+            query, writeBatch, serverTimestamp, signInAnonymously, signInWithCustomToken, onAuthStateChanged, getDocs
         };
     </script>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'montage-app-v1';
         const ADMIN_PIN = "8852";
         const WORKER_PIN = "8623";
 
         const translations = {
             de: { search: "Suche Adresse...", partial: "Teilweise montiert", finished: "Fertig montiert", blocked: "Blockiert / Problem", openItems: "Wie viele Elemente sind noch offen?", submit: "Status Senden", cancel: "Abbrechen", back: "Zurück" },
             sq: { search: "Kërko adresën...", partial: "Montuar pjesërisht", finished: "Montimi përfundoi", blocked: "E bllokuar / Problem", openItems: "Sa elemente janë ende të hapura?", submit: "Dërgo Statusin", cancel: "Anuloj", back: "Mbrapa" },
-            it: { search: "Cerca indirizzo...", partial: "Parzialmente montato", finished: "Montaggio completato", blocked: "Bloccato / Problema", openItems: "Quanti elementi sind noch offen?", submit: "Invia Stato", cancel: "Annulla", back: "Indietro" }
+            it: { search: "Cerca indirizzo...", partial: "Parzialmente montato", finished: "Montaggio completato", blocked: "Bloccato / Problema", openItems: "Quanti elementi sono aperti?", submit: "Invia Stato", cancel: "Annulla", back: "Indietro" }
         };
 
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -118,18 +118,23 @@
             const [lang, setLang] = useState('de');
             const [objects, setObjects] = useState([]);
             const [user, setUser] = useState(null);
+            const [isImporting, setIsImporting] = useState(false);
             const [workerStatusMode, setWorkerStatusMode] = useState('');
             const [workerRemaining, setWorkerRemaining] = useState('');
 
-            // Auth & Echtzeit-Synchronisierung
             useEffect(() => {
                 const initAuth = async () => {
+                    if (!window.FB) return;
                     const { auth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = window.FB;
                     
-                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        await signInWithCustomToken(auth, __initial_auth_token).catch(() => signInAnonymously(auth));
-                    } else {
-                        await signInAnonymously(auth);
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (e) {
+                        console.error("Auth Error:", e);
                     }
 
                     onAuthStateChanged(auth, (u) => {
@@ -142,7 +147,7 @@
                         initAuth();
                         clearInterval(interval);
                     }
-                }, 100);
+                }, 200);
                 return () => clearInterval(interval);
             }, []);
 
@@ -150,14 +155,15 @@
                 if (!user || !window.FB) return;
                 const { db, collection, onSnapshot, query } = window.FB;
                 
-                // Nutze den korrekten Pfad laut Sicherheitsregeln
-                const collRef = collection(db, 'artifacts', appId, 'public', 'data', 'objects');
+                // Pfad-Logik für Konsistenz
+                const collPath = ['artifacts', appId, 'public', 'data', 'objects'];
+                const collRef = collection(db, ...collPath);
                 
                 const unsubscribe = onSnapshot(query(collRef), (snapshot) => {
                     const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     setObjects(items);
                 }, (err) => {
-                    console.error("Firestore Error:", err);
+                    console.error("Snapshot Error:", err);
                 });
                 
                 return () => unsubscribe();
@@ -174,11 +180,13 @@
             };
 
             const parseDispoLine = (line, currentDay) => {
-                if (!line.trim().toUpperCase().startsWith("LIEFERUNG")) return null;
-                const content = line.trim().replace(/^LIEFERUNG\s*/i, "").trim();
+                const cleanLine = line.trim();
+                if (!cleanLine.toUpperCase().startsWith("LIEFERUNG")) return null;
+                
+                const content = cleanLine.replace(/^LIEFERUNG\s*/i, "").trim();
                 const addressRegex = /([A-ZÄÖÜa-zäöüß\s\.\-]+\s\d*[a-z]?,\s\d{4,5}\s[A-ZÄÖÜa-zäöüß\s\.\-]+)/;
                 const addressMatch = content.match(addressRegex);
-                const address = addressMatch ? addressMatch[0].trim() : content;
+                const address = addressMatch ? addressMatch[0].trim() : content.substring(0, 40) + "...";
                 const customer = content.split(address)[0]?.trim().replace(/,$/, '') || "Kunde";
                 const eleMatch = content.match(/(\d+)\s?ELE/i);
                 const targetCount = eleMatch ? parseInt(eleMatch[1]) : 1;
@@ -193,57 +201,82 @@
             };
 
             const processTextImport = async () => {
-                if (!importText.trim() || !window.FB) return;
-                const { db, doc, collection, writeBatch } = window.FB;
-
-                const lines = importText.split(/\r?\n/);
-                let currentDay = new Date();
-                let currentDayLabel = "Heute";
-                const batch = writeBatch(db);
-                let count = 0;
-                const summaryMap = {};
-
-                lines.forEach(line => {
-                    const dayMatch = line.match(/(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\s+(\d{2}\.\d{2}\.\d{4})/i);
-                    if (dayMatch) {
-                        currentDayLabel = dayMatch[0];
-                        const [d, m, y] = dayMatch[2].split('.');
-                        currentDay = new Date(y, m - 1, d);
-                        return;
-                    }
-                    if (line.trim().toUpperCase().startsWith("LIEFERUNG")) {
-                        const obj = parseDispoLine(line, currentDay);
-                        if (obj) {
-                            const newDocRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'objects'));
-                            batch.set(newDocRef, obj);
-                            summaryMap[currentDayLabel] = (summaryMap[currentDayLabel] || 0) + 1;
-                            count++;
-                        }
-                    }
-                });
-
-                if (count > 0) {
-                    await batch.commit();
-                    setImportSummary({ 
-                        days: Object.entries(summaryMap).map(([label, count]) => ({ label, count })),
-                        total: count 
-                    });
+                if (!importText.trim() || !window.FB || !user) {
+                    console.error("Import verweigert: Kein Text oder User nicht eingeloggt");
+                    return;
                 }
                 
-                setImportText('');
-                setShowImportModal(false);
+                setIsImporting(true);
+                try {
+                    const { db, doc, collection, writeBatch } = window.FB;
+                    const lines = importText.split(/\r?\n/);
+                    let currentDay = new Date();
+                    let currentDayLabel = "Heute";
+                    const batch = writeBatch(db);
+                    let count = 0;
+                    const summaryMap = {};
+
+                    for (const line of lines) {
+                        const dayMatch = line.match(/(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\s+(\d{2}\.\d{2}\.\d{4})/i);
+                        if (dayMatch) {
+                            currentDayLabel = dayMatch[0];
+                            const [d, m, y] = dayMatch[2].split('.');
+                            currentDay = new Date(y, m - 1, d);
+                            continue;
+                        }
+                        
+                        if (line.trim().toUpperCase().startsWith("LIEFERUNG")) {
+                            const obj = parseDispoLine(line, currentDay);
+                            if (obj) {
+                                const collRef = collection(db, 'artifacts', appId, 'public', 'data', 'objects');
+                                const newDocRef = doc(collRef);
+                                batch.set(newDocRef, obj);
+                                summaryMap[currentDayLabel] = (summaryMap[currentDayLabel] || 0) + 1;
+                                count++;
+                            }
+                        }
+                    }
+
+                    if (count > 0) {
+                        await batch.commit();
+                        setImportSummary({ 
+                            days: Object.entries(summaryMap).map(([label, count]) => ({ label, count })),
+                            total: count 
+                        });
+                        setImportText('');
+                        setShowImportModal(false);
+                    } else {
+                        console.warn("Keine gültigen 'LIEFERUNG' Zeilen gefunden.");
+                    }
+                } catch (err) {
+                    console.error("Batch Import Error:", err);
+                    alert("Fehler beim Import: " + err.message);
+                } finally {
+                    setIsImporting(false);
+                }
             };
 
             const stats = useMemo(() => {
                 let total = 0, done = 0, blocked = 0;
-                objects.forEach(o => { total += o.target; done += o.current; if (o.status === 'blocked') blocked++; });
-                return { open: objects.filter(o => o.status === 'active').length, percent: total > 0 ? Math.round((done/total)*100) : 0, blocked };
+                objects.forEach(o => { 
+                    total += (o.target || 0); 
+                    done += (o.current || 0); 
+                    if (o.status === 'blocked') blocked++; 
+                });
+                return { 
+                    open: objects.filter(o => o.status === 'active').length, 
+                    percent: total > 0 ? Math.round((done/total)*100) : 0, 
+                    blocked 
+                };
             }, [objects]);
 
             const filteredObjects = useMemo(() => {
                 return [...objects].sort((a,b) => new Date(a.deliveryDate) - new Date(b.deliveryDate))
-                              .filter(o => o.address.toLowerCase().includes(searchTerm.toLowerCase()));
+                              .filter(o => (o.address || "").toLowerCase().includes(searchTerm.toLowerCase()));
             }, [objects, searchTerm]);
+
+            // UI Logik (Login, Dashboard, etc.) bleibt gleich wie im vorherigen Build...
+            // [Hier folgt der restliche UI-Code wie zuvor, gekürzt für Fokus auf Fix]
 
             if (view === 'login') return (
                 <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-slate-950">
@@ -309,7 +342,7 @@
 
                         <div className="space-y-3">
                             <div className="flex justify-between items-center px-1">
-                                <h4 className="text-[10px] font-black text-slate-500 uppercase italic">Objektliste</h4>
+                                <h4 className="text-[10px] font-black text-slate-500 uppercase italic">Objektliste ({filteredObjects.length})</h4>
                                 <input type="text" placeholder="Suche..." className="bg-transparent border-b border-white/10 text-[10px] text-white outline-none w-32" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                             </div>
                             {filteredObjects.length === 0 ? (
@@ -337,13 +370,19 @@
                             <textarea className="flex-1 w-full bg-slate-900 border border-white/10 p-4 rounded-xl text-[11px] text-white outline-none font-mono" placeholder="Kopiere hier die Dispo-Liste hinein..." value={importText} onChange={(e) => setImportText(e.target.value)}></textarea>
                             <div className="grid grid-cols-2 gap-4 mt-6">
                                 <button onClick={() => setShowImportModal(false)} className="py-4 text-slate-400 font-black uppercase text-[10px]">Abbrechen</button>
-                                <button onClick={processTextImport} className="bg-indigo-600 text-white py-4 rounded-xl font-black uppercase text-[10px]">Import starten</button>
+                                <button 
+                                    onClick={processTextImport} 
+                                    disabled={isImporting}
+                                    className={`${isImporting ? 'bg-slate-700' : 'bg-indigo-600'} text-white py-4 rounded-xl font-black uppercase text-[10px]`}>
+                                    {isImporting ? 'Wird importiert...' : 'Import starten'}
+                                </button>
                             </div>
                         </div>
                     )}
                 </div>
             );
 
+            // Arbeiter-Ansichten (gekürzt, Logik analog zum Dashboard)
             if (view === 'worker_list') return (
                 <div className="min-h-screen bg-slate-950 p-4 pb-20">
                     <div className="flex justify-between items-center mb-6">
@@ -354,9 +393,7 @@
                         {['de', 'sq', 'it'].map(l => <button key={l} onClick={() => setLang(l)} className={`px-4 py-1 rounded-lg text-[10px] font-black border ${lang === l ? 'bg-blue-600 border-blue-400 text-white' : 'bg-slate-900 border-white/10 text-slate-500'}`}>{l.toUpperCase()}</button>)}
                     </div>
                     <div className="space-y-3">
-                        {objects.filter(o => o.status !== 'finished').length === 0 ? (
-                            <p className="text-center py-20 text-slate-500 text-xs font-black uppercase italic">Alles fertig montiert! 🚀</p>
-                        ) : objects.filter(o => o.status !== 'finished').map(obj => (
+                        {objects.filter(o => o.status !== 'finished').map(obj => (
                             <button key={obj.id} onClick={() => { setSelectedObject(obj); setView('worker_edit'); }} className="w-full card-gradient border border-white/5 p-4 rounded-xl text-left flex justify-between items-center active:scale-[0.98] transition-transform">
                                 <div>
                                     <h3 className="text-[11px] font-black text-white uppercase italic">{obj.address}</h3>
@@ -398,20 +435,13 @@
                              const obj = selectedObject;
                              let current = obj.current, status = 'active';
                              
-                             if(workerStatusMode === 'finished') { 
-                                current = obj.target; 
-                                status = 'finished'; 
-                             } else if(workerStatusMode === 'partial') { 
-                                current = Math.max(0, obj.target - (parseInt(workerRemaining) || 0)); 
-                             }
+                             if(workerStatusMode === 'finished') { current = obj.target; status = 'finished'; }
+                             else if(workerStatusMode === 'partial') { current = Math.max(0, obj.target - (parseInt(workerRemaining) || 0)); }
 
                              await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), {
                                 current, status, lastUpdate: serverTimestamp()
                              });
-                             
-                             setView('worker_list'); 
-                             setWorkerStatusMode(''); 
-                             setWorkerRemaining('');
+                             setView('worker_list'); setWorkerStatusMode(''); setWorkerRemaining('');
                         }} className="w-full py-5 bg-white text-black rounded-2xl font-black uppercase text-[11px] shadow-xl mt-6 active:scale-95 transition-transform">{translations[lang].submit}</button>
                     </div>
                 </div>
