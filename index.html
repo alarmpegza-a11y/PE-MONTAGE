@@ -10,6 +10,29 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyCW_ix8uO6872p3jcuLvnFpF_EMr8gYdIw",
+            authDomain: "montage-pe.firebaseapp.com",
+            projectId: "montage-pe",
+            storageBucket: "montage-pe.firebasestorage.app",
+            messagingSenderId: "535448567697",
+            appId: "1:535448567697:web:e57520e9c568939ab32430"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        window.FirebaseSDK = { app, db, auth, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query, signInAnonymously, onAuthStateChanged };
+    </script>
+
     <style>
         :root {
             --primary: #3b82f6;
@@ -35,20 +58,9 @@
 
         .btn-tactile {
             transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
         .btn-tactile:active {
-            transform: scale(0.96) translateY(2px);
-            box-shadow: none;
-        }
-
-        .status-badge {
-            font-size: 0.65rem;
-            letter-spacing: 0.05em;
-            text-transform: uppercase;
-            font-weight: 800;
-            padding: 4px 10px;
-            border-radius: 9999px;
+            transform: scale(0.96);
         }
 
         .card-gradient {
@@ -56,20 +68,16 @@
             border: 1px solid rgba(255, 255, 255, 0.05);
         }
 
-        /* Animationen */
         .page-transition {
-            animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            animation: slideUp 0.3s ease-out;
         }
         @keyframes slideUp {
-            from { opacity: 0; transform: translateY(20px); }
+            from { opacity: 0; transform: translateY(10px); }
             to { opacity: 1; transform: translateY(0); }
         }
 
-        select {
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 1.25rem center;
-            background-size: 1.25rem;
+        ::-webkit-scrollbar {
+            display: none;
         }
     </style>
 </head>
@@ -78,6 +86,54 @@
 
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
+
+        const translations = {
+            de: {
+                search: "Suche Adresse...",
+                partial: "Teilweise montiert",
+                finished: "Fertig montiert",
+                blocked: "Blockiert / Problem",
+                openItems: "Wie viele Elemente sind noch offen?",
+                reason: "Grund...",
+                submit: "Status Senden",
+                cancel: "Abbrechen",
+                placeholderNum: "Zahl...",
+                back: "Zurück",
+                eleOffen: "Elemente offen",
+                eleMontiert: "ELE montiert",
+                house: "Haus"
+            },
+            sq: {
+                search: "Kërko adresën...",
+                partial: "Montuar pjesërisht",
+                finished: "Montimi përfundoi",
+                blocked: "E bllokuar / Problem",
+                openItems: "Sa elemente janë ende të hapura?",
+                reason: "Arsyeja...",
+                submit: "Dërgo Statusin",
+                cancel: "Anuloj",
+                placeholderNum: "Numri...",
+                back: "Mbrapa",
+                eleOffen: "Elemente hapur",
+                eleMontiert: "ELE të montuara",
+                house: "Shtëpia"
+            },
+            it: {
+                search: "Cerca indirizzo...",
+                partial: "Parzialmente montato",
+                finished: "Montaggio completato",
+                blocked: "Bloccato / Problema",
+                openItems: "Quanti elementi sono ancora aperti?",
+                reason: "Motivo...",
+                submit: "Invia Stato",
+                cancel: "Annulla",
+                placeholderNum: "Numero...",
+                back: "Indietro",
+                eleOffen: "Elementi aperti",
+                eleMontiert: "ELE montati",
+                house: "Casa"
+            }
+        };
 
         const Icon = ({ name, size = 24, className = "" }) => {
             const iconRef = useRef(null);
@@ -98,7 +154,23 @@
 
         const formatDate = (isoStr) => {
             if (!isoStr) return "N/A";
-            return new Date(isoStr).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            const d = new Date(isoStr);
+            if (isNaN(d.getTime())) return "N/A";
+            return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' });
+        };
+
+        const isExpiredWorkdays = (isoDate, daysLimit = 5) => {
+            if (!isoDate) return false;
+            let current = new Date(isoDate);
+            let now = new Date();
+            let count = 0;
+            while (current < now) {
+                current.setDate(current.getDate() + 1);
+                const day = current.getDay();
+                if (day !== 0 && day !== 6) count++;
+                if (count > daysLimit) return true;
+            }
+            return false;
         };
 
         const ADMIN_PIN = "8852";
@@ -108,307 +180,308 @@
             const [pin, setPin] = useState('');
             const [view, setView] = useState('login'); 
             const [searchTerm, setSearchTerm] = useState('');
-            const [filterBlockedOnly, setFilterBlockedOnly] = useState(false);
             const [workerSearchTerm, setWorkerSearchTerm] = useState('');
-            const [showAddModal, setShowAddModal] = useState(false);
+            const [showImportModal, setShowImportModal] = useState(false);
+            const [importText, setImportText] = useState('');
+            const [importSummary, setImportSummary] = useState(null);
             const [selectedObject, setSelectedObject] = useState(null);
+            const [user, setUser] = useState(null);
             
-            const [workerSelectedHouse, setWorkerSelectedHouse] = useState('');
-            const [workerAmount, setWorkerAmount] = useState('');
-            const [workerBlocked, setWorkerBlocked] = useState(false);
-            const [workerBlockReason, setWorkerBlockReason] = useState('');
-            const [workerDeliveryFinished, setWorkerDeliveryFinished] = useState(false);
+            const [lang, setLang] = useState('de');
+            const t = translations[lang];
 
-            const [objects, setObjects] = useState(() => {
-                const saved = localStorage.getItem('mt_pro_v7_premium');
-                return saved ? JSON.parse(saved) : [
-                    { 
-                        id: '1', 
-                        name: 'Residenz Sihlhalde', 
-                        houses: [
-                            { name: 'Haus A', target: 45, current: 12 },
-                            { name: 'Haus B', target: 20, current: 0 }
-                        ], 
-                        customer: 'Meyer Immobilien', 
-                        deliveryDate: '2024-08-15', 
-                        status: 'active', 
-                        history: [] 
-                    }
-                ];
-            });
+            const [adminFilter, setAdminFilter] = useState('all'); 
+            const [workerStatusMode, setWorkerStatusMode] = useState(''); 
+            const [workerRemaining, setWorkerRemaining] = useState('');
+            const [workerBlockReason, setWorkerBlockReason] = useState('');
+            
+            const [objects, setObjects] = useState([]);
+            const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
             useEffect(() => {
-                localStorage.setItem('mt_pro_v7_premium', JSON.stringify(objects));
-            }, [objects]);
+                const initAuth = async () => {
+                    const { auth, signInAnonymously, onAuthStateChanged, db, collection, onSnapshot, query } = window.FirebaseSDK;
+                    await signInAnonymously(auth);
+                    onAuthStateChanged(auth, (u) => {
+                        setUser(u);
+                        if (u) {
+                            const collRef = collection(db, 'artifacts', appId, 'public', 'data', 'objects');
+                            const q = query(collRef);
+                            const unsubscribe = onSnapshot(q, (snapshot) => {
+                                const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                                const activeData = data.filter(obj => {
+                                    if (obj.status === 'finished' && obj.finishedAt) {
+                                        return !isExpiredWorkdays(obj.finishedAt, 5);
+                                    }
+                                    return true;
+                                });
+                                setObjects(activeData);
+                            }, (err) => console.error("Sync Error:", err));
+                            return () => unsubscribe();
+                        }
+                    });
+                };
+                if (window.FirebaseSDK) initAuth();
+            }, [appId]);
 
             const handleLogin = (digit) => {
                 const newPin = pin + digit;
-                if (newPin.length < 4) {
-                    setPin(newPin);
-                } else {
+                if (newPin.length < 4) setPin(newPin);
+                else {
                     if (newPin === ADMIN_PIN) setView('dashboard');
                     else if (newPin === WORKER_PIN) setView('worker_list');
                     setPin('');
                 }
             };
 
-            const submitWorkerUpdate = () => {
-                if (!workerSelectedHouse && !workerBlocked) return;
-                const updateAmount = parseInt(workerAmount) || 0;
-                
-                setObjects(prev => prev.map(obj => {
-                    if (obj.id === selectedObject.id) {
-                        const newHouses = obj.houses.map(h => {
-                            if (h.name === workerSelectedHouse) {
-                                let nc = h.current + updateAmount;
-                                if (workerDeliveryFinished) nc = h.target;
-                                return { ...h, current: Math.min(h.target, nc) };
-                            }
-                            return h;
-                        });
-                        const totalTarget = newHouses.reduce((s, h) => s + h.target, 0);
-                        const totalCurrent = newHouses.reduce((s, h) => s + h.current, 0);
-                        return {
-                            ...obj,
-                            houses: newHouses,
-                            status: workerBlocked ? 'blocked' : (totalCurrent >= totalTarget ? 'finished' : 'active'),
-                            history: [{ 
-                                date: new Date().toISOString(), 
-                                houseName: workerSelectedHouse, 
-                                amount: updateAmount, 
-                                isBlocked: workerBlocked,
-                                blockReason: workerBlocked ? workerBlockReason : ''
-                            }, ...obj.history]
-                        };
-                    }
-                    return obj;
-                }));
+            const parseDispoLine = (line, currentDay) => {
+                const trimmed = line.trim();
+                if (!trimmed.toUpperCase().startsWith("LIEFERUNG")) return null;
+                const content = trimmed.replace(/^LIEFERUNG\s*/i, "").trim();
+                const addressRegex = /([A-ZÄÖÜa-zäöüß\s\.\-]+\s\d*[a-z]?,\s\d{4,5}\s[A-ZÄÖÜa-zäöüß\s\.\-]+)/;
+                const addressMatch = content.match(addressRegex);
+                let address = "";
+                let customer = "Kunde";
+                let remainder = content;
+                if (addressMatch) {
+                    address = addressMatch[0].trim();
+                    const parts = content.split(address);
+                    customer = parts[0]?.trim() || "Kunde";
+                    remainder = parts[1]?.trim() || "";
+                } else {
+                    address = content;
+                }
+                const eleRegex = /(\d+)\s?ELE/i;
+                const eleMatch = remainder.match(eleRegex);
+                const targetCount = eleMatch ? parseInt(eleMatch[1]) : 1;
+                const houseRegex = /(Haus\s?\d+)/i;
+                const houseMatch = remainder.match(houseRegex);
+                const houseInfo = houseMatch ? houseMatch[0] : "";
+                return {
+                    id: `obj-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    name: address,
+                    customer: customer.replace(/,$/, '').trim() || "Kunde",
+                    address: address,
+                    houseInfo: houseInfo || "Gesamtmontage",
+                    target: targetCount,
+                    current: 0,
+                    lastRemaining: null, 
+                    blockReason: null, 
+                    deliveryDate: currentDay.toISOString(),
+                    status: 'active',
+                    history: []
+                };
+            };
 
-                setWorkerAmount(''); 
-                setWorkerBlocked(false); 
-                setWorkerBlockReason('');
-                setWorkerSelectedHouse(''); 
-                setView('worker_list');
+            const processTextImport = async () => {
+                const lines = importText.split(/\r?\n/);
+                let currentDay = new Date();
+                let currentDayLabel = "Unbekannt";
+                const newObjects = [];
+                const summaryEntries = [];
+                
+                const dayRegex = /(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\s+(\d{2}\.\d{2}\.\d{4})/i;
+                
+                lines.forEach(line => {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine) return;
+                    const dayMatch = trimmedLine.match(dayRegex);
+                    if (dayMatch) {
+                        const [fullMatch, dayName, dateStr] = dayMatch;
+                        const [d, m, y] = dateStr.split('.');
+                        currentDay = new Date(y, m - 1, d);
+                        currentDayLabel = `${dayName} ${dateStr}`;
+                        if (!summaryEntries.find(e => e.label === currentDayLabel)) {
+                            summaryEntries.push({ label: currentDayLabel, count: 0 });
+                        }
+                        return;
+                    }
+                    if (trimmedLine.toUpperCase().startsWith("LIEFERUNG")) {
+                        const obj = parseDispoLine(trimmedLine, currentDay);
+                        if (obj) {
+                            newObjects.push(obj);
+                            let entry = summaryEntries.find(e => e.label === currentDayLabel);
+                            if (!entry) {
+                                entry = { label: currentDayLabel, count: 0 };
+                                summaryEntries.push(entry);
+                            }
+                            entry.count++;
+                        }
+                    }
+                });
+
+                if (newObjects.length > 0) {
+                    const { db, doc, setDoc } = window.FirebaseSDK;
+                    const savePromises = newObjects.map(obj => 
+                        setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), obj)
+                    );
+                    await Promise.all(savePromises);
+                    
+                    // Zusammenfassung erstellen
+                    setImportSummary({
+                        days: summaryEntries.filter(e => e.count > 0),
+                        total: newObjects.length
+                    });
+                }
+                
+                // Fenster schließen und Feld leeren
+                setImportText('');
+                setShowImportModal(false);
+            };
+
+            const submitWorkerUpdate = async () => {
+                const now = new Date().toISOString();
+                const { db, doc, updateDoc } = window.FirebaseSDK;
+                const obj = selectedObject;
+                let newStatus = obj.status, newCurrent = obj.current, finishedAt = obj.finishedAt || null, lastRemaining = obj.lastRemaining || null, blockReason = obj.blockReason || null;
+                if (workerStatusMode === 'finished') {
+                    newCurrent = obj.target; newStatus = 'finished'; finishedAt = now; lastRemaining = 0; blockReason = null;
+                } else if (workerStatusMode === 'blocked') {
+                    newStatus = 'blocked'; blockReason = workerBlockReason;
+                } else if (workerStatusMode === 'partial') {
+                    const open = parseInt(workerRemaining) || 0;
+                    newCurrent = Math.max(0, obj.target - open); newStatus = 'active'; lastRemaining = open; blockReason = null;
+                }
+                const logEntry = { date: now, mode: workerStatusMode, detail: workerStatusMode === 'blocked' ? workerBlockReason : workerRemaining };
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), {
+                    current: newCurrent, status: newStatus, finishedAt, lastRemaining, blockReason,
+                    history: [logEntry, ...(obj.history || [])]
+                });
+                setWorkerStatusMode(''); setWorkerRemaining(''); setWorkerBlockReason(''); setView('worker_list');
             };
 
             const stats = useMemo(() => {
-                let total = 0, done = 0, blocked = 0;
+                let total = 0, done = 0, blocked = 0, partial = 0;
                 objects.forEach(obj => {
-                    obj.houses.forEach(h => { total += h.target; done += h.current; });
+                    total += obj.target; done += obj.current;
                     if (obj.status === 'blocked') blocked++;
+                    if (obj.lastRemaining > 0 && obj.status !== 'finished' && obj.status !== 'blocked') partial++;
                 });
-                return { 
-                    open: objects.filter(o => o.status === 'active').length, 
-                    percent: total > 0 ? Math.round((done/total)*100) : 0,
-                    blocked: blocked
-                };
+                return { open: objects.filter(o => o.status === 'active').length, percent: total > 0 ? Math.round((done/total)*100) : 0, blocked, partial };
             }, [objects]);
 
-            // Gefilterte Liste für den Admin
-            const filteredAdminObjects = useMemo(() => {
-                return objects.filter(obj => {
-                    const matchesSearch = obj.name.toLowerCase().includes(searchTerm.toLowerCase());
-                    const matchesFilter = filterBlockedOnly ? obj.status === 'blocked' : true;
-                    return matchesSearch && matchesFilter;
-                });
-            }, [objects, searchTerm, filterBlockedOnly]);
+            const filteredObjects = useMemo(() => {
+                let list = objects;
+                if (adminFilter === 'blocked') list = list.filter(o => o.status === 'blocked');
+                else if (adminFilter === 'partial') list = list.filter(o => o.lastRemaining > 0 && o.status !== 'finished' && o.status !== 'blocked');
+                return list.filter(o => o.address.toLowerCase().includes(searchTerm.toLowerCase()));
+            }, [objects, adminFilter, searchTerm]);
 
             if (view === 'login') return (
-                <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-slate-950 overflow-hidden relative">
-                    <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/10 blur-[120px] rounded-full"></div>
-                    <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-indigo-600/10 blur-[120px] rounded-full"></div>
-                    
-                    <div className="z-10 flex flex-col items-center w-full max-w-sm">
-                        <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-[1.5rem] flex items-center justify-center shadow-2xl mb-8 rotate-3">
-                            <Icon name="shield-check" size={40} className="text-white" />
-                        </div>
-                        <h1 className="text-3xl font-black tracking-tight text-white italic mb-10">MMP PREMIUM</h1>
-                        
-                        <div className="flex gap-4 mb-12">
-                            {[0,1,2,3].map(i => (
-                                <div key={i} className={`w-3.5 h-3.5 rounded-full border-2 border-blue-500 transition-all ${pin.length > i ? 'bg-blue-500 scale-125' : 'bg-transparent opacity-30'}`} />
-                            ))}
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-5 w-full">
-                            {[1,2,3,4,5,6,7,8,9].map(n => (
-                                <button key={n} onClick={() => handleLogin(n.toString())} className="h-16 glass rounded-2xl text-xl font-black text-white hover:bg-slate-800 transition-all active:scale-90 border border-white/5">{n}</button>
-                            ))}
-                            <button onClick={() => setPin('')} className="h-16 flex items-center justify-center text-slate-500"><Icon name="delete" size={24}/></button>
-                            <button onClick={() => handleLogin('0')} className="h-16 glass rounded-2xl text-xl font-black text-white active:scale-90 border border-white/5">0</button>
-                        </div>
+                <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-slate-950">
+                    <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-xl mb-6">
+                        <Icon name="shield-check" size={32} className="text-white" />
+                    </div>
+                    <h1 className="text-2xl font-black text-white italic mb-10 uppercase tracking-tight">Montage Manager</h1>
+                    <div className="flex gap-3 mb-10">
+                        {[0,1,2,3].map(i => (
+                            <div key={i} className={`w-3 h-3 rounded-full border-2 border-blue-500 transition-all ${pin.length > i ? 'bg-blue-500 scale-110' : 'bg-transparent opacity-20'}`} />
+                        ))}
+                    </div>
+                    <div className="grid grid-cols-3 gap-4 w-full max-w-xs">
+                        {[1,2,3,4,5,6,7,8,9].map(n => (
+                            <button key={n} onClick={() => handleLogin(n.toString())} className="h-16 glass rounded-xl text-xl font-black text-white active:scale-90 border border-white/5">{n}</button>
+                        ))}
+                        <button onClick={() => setPin('')} className="h-16 flex items-center justify-center text-slate-500"><Icon name="delete" size={24}/></button>
+                        <button onClick={() => handleLogin('0')} className="h-16 glass rounded-xl text-xl font-black text-white active:scale-90 border border-white/5">0</button>
                     </div>
                 </div>
             );
 
             if (view === 'dashboard') return (
-                <div className="min-h-screen bg-slate-950 pb-24 page-transition">
-                    <nav className="p-6 sticky top-0 z-40 glass border-b border-white/10 flex justify-between items-center">
-                        <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 bg-blue-600 rounded-lg flex items-center justify-center text-white shadow-lg shadow-blue-900/40">
-                                <Icon name="layout" size={18}/>
-                            </div>
-                            <h2 className="text-lg font-black text-white italic">ADMIN PANEL</h2>
-                        </div>
-                        <button onClick={() => setView('login')} className="p-2 text-slate-400 hover:text-white transition-colors"><Icon name="log-out" size={20}/></button>
+                <div className="min-h-screen bg-slate-950 pb-20 page-transition">
+                    <nav className="p-4 sticky top-0 z-40 glass border-b border-white/10 flex justify-between items-center">
+                        <h2 className="text-sm font-black text-white italic uppercase tracking-widest">Admin Panel</h2>
+                        <button onClick={() => setView('login')} className="p-2 text-slate-400"><Icon name="log-out" size={18}/></button>
                     </nav>
-
-                    <main className="p-6 max-w-2xl mx-auto space-y-10">
-                        {/* Stats Section */}
-                        <div className="grid grid-cols-3 gap-4">
-                            <div className="card-gradient p-4 rounded-[1.25rem] shadow-xl">
-                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Aktiv</p>
-                                <div className="flex items-end gap-1">
-                                    <span className="text-2xl font-black text-white leading-none">{stats.open}</span>
-                                    <span className="text-[8px] font-bold text-blue-500 uppercase mb-0.5">Obj.</span>
-                                </div>
+                    <main className="p-4 max-w-3xl mx-auto space-y-6">
+                        <div className="grid grid-cols-4 gap-2">
+                            <div onClick={() => setAdminFilter('all')} className={`card-gradient p-2 rounded-xl border transition-all cursor-pointer ${adminFilter === 'all' ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'border-white/5'}`}>
+                                <p className="text-[7px] font-black text-slate-500 uppercase">Aktiv</p>
+                                <div className="text-lg font-black text-white">{stats.open}</div>
                             </div>
-                            
-                            {/* Klickbare Blockiert-Karte */}
-                            <button 
-                                onClick={() => setFilterBlockedOnly(!filterBlockedOnly)}
-                                className={`card-gradient p-4 rounded-[1.25rem] shadow-xl ring-1 transition-all text-left group active:scale-95 ${filterBlockedOnly ? 'ring-red-500 bg-red-500/10' : 'ring-red-500/20'}`}
-                            >
-                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1 group-hover:text-red-400">Blockiert</p>
-                                <div className="flex items-end gap-1">
-                                    <span className={`text-2xl font-black leading-none ${stats.blocked > 0 ? 'text-red-500' : 'text-white'}`}>{stats.blocked}</span>
-                                    <span className="text-[8px] font-bold text-red-500 uppercase mb-0.5">Obj.</span>
-                                </div>
-                                {stats.blocked > 0 && !filterBlockedOnly && (
-                                    <div className="mt-1 text-[7px] text-red-400/60 font-bold uppercase animate-pulse">Klick zum Filtern</div>
-                                )}
-                            </button>
-
-                            <div className="card-gradient p-4 rounded-[1.25rem] shadow-xl">
-                                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-1">Status</p>
-                                <div className="flex items-end gap-1">
-                                    <span className="text-2xl font-black text-white leading-none">{stats.percent}%</span>
-                                    <div className="w-1.5 h-1.5 rounded-full bg-green-500 mb-1.5 animate-pulse"></div>
-                                </div>
+                            <div onClick={() => setAdminFilter(adminFilter === 'blocked' ? 'all' : 'blocked')} className={`card-gradient p-2 rounded-xl border transition-all cursor-pointer ${adminFilter === 'blocked' ? 'border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.3)]' : 'border-white/5'}`}>
+                                <p className="text-[7px] font-black text-slate-500 uppercase">Blockiert</p>
+                                <div className="text-lg font-black text-red-500">{stats.blocked}</div>
+                            </div>
+                            <div onClick={() => setAdminFilter(adminFilter === 'partial' ? 'all' : 'partial')} className={`card-gradient p-2 rounded-xl border transition-all cursor-pointer ${adminFilter === 'partial' ? 'border-orange-500 shadow-[0_0_15px_rgba(249,115,22,0.3)]' : 'border-white/5'}`}>
+                                <p className="text-[7px] font-black text-slate-500 uppercase leading-tight">Teilweise</p>
+                                <div className="text-lg font-black text-orange-500">{stats.partial}</div>
+                            </div>
+                            <div className="card-gradient p-2 rounded-xl border border-white/5">
+                                <p className="text-[7px] font-black text-slate-500 uppercase">Status</p>
+                                <div className="text-lg font-black text-blue-500">{stats.percent}%</div>
                             </div>
                         </div>
 
-                        {/* OBJEKT ERÖFFNEN - GROSSER BLAUER BUTTON */}
-                        <button 
-                            onClick={() => setShowAddModal(true)} 
-                            className="w-full bg-blue-600 hover:bg-blue-500 text-white py-5 rounded-2xl font-black uppercase tracking-widest shadow-lg shadow-blue-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
-                        >
-                            <Icon name="plus-circle" size={20}/>
-                            Neues Objekt eröffnen
-                        </button>
-
-                        {/* Search & Filter Info */}
-                        <div className="space-y-4">
-                            <div className="relative group">
-                                <Icon name="search" size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-blue-500 transition-colors" />
-                                <input 
-                                    type="text" 
-                                    placeholder="Suche..." 
-                                    className="w-full bg-slate-900 border border-white/5 rounded-xl py-3.5 pl-12 text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                />
-                            </div>
-                            
-                            {filterBlockedOnly && (
-                                <div className="flex items-center justify-between bg-red-500/10 border border-red-500/20 p-3 rounded-xl animate-in slide-in-from-top-2">
-                                    <span className="text-[10px] font-black text-red-400 uppercase tracking-widest flex items-center gap-2">
-                                        <Icon name="filter" size={12}/> Filter: Nur blockierte Objekte
-                                    </span>
-                                    <button 
-                                        onClick={() => setFilterBlockedOnly(false)}
-                                        className="text-[10px] font-black text-white bg-red-600 px-3 py-1 rounded-lg uppercase"
-                                    >
-                                        Filter aufheben
-                                    </button>
-                                </div>
-                            )}
+                        <div className="grid grid-cols-1 gap-3">
+                            <button onClick={() => setShowImportModal(true)} className="bg-indigo-600 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest active:scale-95 transition-all shadow-lg shadow-indigo-900/20">Dispo-Text Importieren</button>
                         </div>
 
-                        {/* Object List */}
-                        <div className="space-y-8">
-                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] px-1">
-                                {filterBlockedOnly ? 'Blockierte Projekte' : 'Aktuelle Projekte'}
-                            </p>
-                            
-                            {filteredAdminObjects.length === 0 ? (
-                                <div className="text-center py-20 bg-slate-900/20 rounded-[2rem] border border-dashed border-white/10">
-                                    <Icon name="inbox" size={40} className="mx-auto text-slate-700 mb-4" />
-                                    <p className="text-slate-500 font-bold uppercase text-[10px] tracking-widest">Keine Objekte gefunden</p>
+                        {/* IMPORT BESTÄTIGUNG */}
+                        {importSummary && (
+                            <div className="bg-blue-900/40 border border-blue-500/50 rounded-xl p-4 animate-in fade-in slide-in-from-top-4 duration-500">
+                                <div className="flex items-center justify-between mb-2">
+                                    <h5 className="text-[10px] font-black text-blue-400 uppercase italic tracking-widest flex items-center gap-2">
+                                        <Icon name="check-circle" size={14}/> Import Erfolgreich
+                                    </h5>
+                                    <button onClick={() => setImportSummary(null)} className="text-slate-500"><Icon name="x" size={14}/></button>
                                 </div>
-                            ) : (
-                                filteredAdminObjects.map(obj => {
-                                    const total = obj.houses.reduce((s, h) => s + h.target, 0);
-                                    const done = obj.houses.reduce((s, h) => s + h.current, 0);
-                                    const perc = total > 0 ? (done/total)*100 : 0;
-                                    return (
-                                        <div key={obj.id} className={`card-gradient rounded-[1.5rem] overflow-hidden shadow-2xl animate-in ${obj.status === 'blocked' ? 'ring-1 ring-red-500/30' : ''}`}>
-                                            <div className="p-6">
-                                                <div className="flex justify-between items-start mb-6">
-                                                    <div>
-                                                        <h3 className="text-xl font-black text-white leading-tight mb-1">{obj.name}</h3>
-                                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{obj.customer}</p>
-                                                    </div>
-                                                    <span className={`status-badge ${obj.status === 'blocked' ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'}`}>
-                                                        {obj.status}
-                                                    </span>
-                                                </div>
-                                                
-                                                <div className="space-y-4 mb-6">
-                                                    {obj.houses.map((h, idx) => (
-                                                        <div key={idx} className="flex items-center gap-4">
-                                                            <span className="text-[10px] font-black text-slate-400 w-14 uppercase truncate">{h.name}</span>
-                                                            <div className="flex-1 bg-slate-950 h-1.5 rounded-full overflow-hidden">
-                                                                <div className={`h-full transition-all duration-1000 ${h.current >= h.target ? 'bg-green-500' : 'bg-blue-600'}`} style={{width: `${(h.current/h.target)*100}%`}}></div>
-                                                            </div>
-                                                            <span className="text-[10px] font-bold text-slate-300 w-10 text-right">{h.current}/{h.target}</span>
-                                                        </div>
-                                                    ))}
-                                                </div>
+                                <div className="space-y-1">
+                                    {importSummary.days.map((day, i) => (
+                                        <p key={i} className="text-[11px] font-bold text-slate-200">
+                                            {day.label}: <span className="text-blue-400">{day.count} Objekte</span>
+                                        </p>
+                                    ))}
+                                    <div className="pt-2 mt-1 border-t border-white/5 text-xs font-black text-white italic">
+                                        Gesamt: {importSummary.total} Lieferungen hinzugefügt
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        <div className="flex items-center justify-between px-1">
+                             <h4 className="text-[10px] font-black text-slate-400 uppercase italic">Objekte</h4>
+                             <input type="text" placeholder="Suche..." className="bg-transparent text-[10px] font-bold text-white border-b border-white/10 outline-none w-24" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                        </div>
 
-                                                <div className="flex justify-between items-center pt-5 border-t border-white/5">
-                                                    <div className="flex items-center gap-2 text-slate-500">
-                                                        <Icon name="calendar" size={14}/>
-                                                        <span className="text-[10px] font-bold">{formatDate(obj.deliveryDate)}</span>
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <p className="text-[10px] font-black text-slate-500 uppercase mb-0.5">Fortschritt</p>
-                                                        <p className="text-sm font-black text-white italic">{Math.round(perc)}%</p>
-                                                    </div>
-                                                </div>
-                                                
-                                                {obj.status === 'blocked' && obj.history[0]?.blockReason && (
-                                                    <div className="mt-4 p-3 bg-red-500/5 border-l-2 border-red-500 rounded-r-lg">
-                                                        <p className="text-[9px] font-black text-red-400 uppercase mb-1">Blockierungs-Grund:</p>
-                                                        <p className="text-xs text-slate-300 italic">"{obj.history[0].blockReason}"</p>
-                                                    </div>
-                                                )}
-                                            </div>
+                        <div className="space-y-3">
+                            {filteredObjects.map(obj => (
+                                <div key={obj.id} className={`card-gradient rounded-xl border p-4 relative transition-all ${obj.status === 'blocked' ? 'border-red-500/50' : 'border-white/5'}`}>
+                                    <button onClick={async () => {
+                                        if(confirm('Möchten Sie dieses Objekt wirklich löschen?')) {
+                                            const { db, doc, deleteDoc } = window.FirebaseSDK;
+                                            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id));
+                                        }
+                                    }} className="absolute top-4 right-4 text-slate-600 hover:text-red-500 transition-colors p-1"><Icon name="trash-2" size={14}/></button>
+                                    <h3 className="text-xs font-black text-white italic uppercase mb-1">{obj.address}</h3>
+                                    <p className="text-[10px] font-bold text-blue-400 mb-2">{obj.customer} | {obj.houseInfo}</p>
+                                    <div className="flex items-center justify-between">
+                                        <span className="text-[8px] text-slate-500 font-bold uppercase">{formatDate(obj.deliveryDate)}</span>
+                                        <div className="text-right">
+                                            <span className="text-[10px] font-black text-white block">{obj.current}/{obj.target} ELE</span>
                                         </div>
-                                    );
-                                })
-                            )}
+                                    </div>
+                                    <div className="w-full bg-slate-900 h-1.5 rounded-full mt-2 overflow-hidden">
+                                        <div className={`h-full ${obj.status === 'blocked' ? 'bg-red-500' : 'bg-blue-600'}`} style={{width: `${(obj.current/obj.target)*100}%`}}></div>
+                                    </div>
+                                    {obj.status === 'blocked' && obj.blockReason && (
+                                        <div className="mt-3 bg-red-500/10 border border-red-500/30 p-2 rounded-lg">
+                                            <p className="text-[8px] font-black text-red-500 uppercase mb-1">Blockierungsgrund:</p>
+                                            <p className="text-[10px] font-bold text-slate-200">{obj.blockReason}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
                         </div>
                     </main>
-                    
-                    {showAddModal && (
-                        <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-6">
-                            <div className="bg-slate-900 w-full max-w-md rounded-[2rem] p-8 border border-white/10 shadow-2xl">
-                                <div className="flex justify-between items-center mb-8">
-                                    <h3 className="text-xl font-black italic text-white">OBJEKT ERÖFFNEN</h3>
-                                    <button onClick={() => setShowAddModal(false)} className="text-slate-500 hover:text-white"><Icon name="x" size={28}/></button>
-                                </div>
-                                <div className="space-y-6">
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Projekt Name</label>
-                                        <input className="w-full bg-slate-950 border border-white/10 p-4 rounded-xl outline-none focus:border-blue-500" placeholder="z.B. Sihlhalde" />
-                                    </div>
-                                    <div className="space-y-2">
-                                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Kunde</label>
-                                        <input className="w-full bg-slate-950 border border-white/10 p-4 rounded-xl outline-none focus:border-blue-500" placeholder="z.B. Meyer AG" />
-                                    </div>
-                                    <button onClick={() => setShowAddModal(false)} className="w-full bg-blue-600 text-white py-4 rounded-xl font-black uppercase tracking-widest">Projekt Speichern</button>
-                                </div>
+                    {showImportModal && (
+                        <div className="fixed inset-0 z-50 bg-slate-950/95 p-6 flex flex-col">
+                            <h3 className="text-sm font-black text-white uppercase italic mb-4">Text Import</h3>
+                            <textarea className="flex-1 w-full bg-slate-900 border border-white/10 p-4 rounded-xl text-[11px] text-white outline-none font-mono" placeholder="Kopiere hier die Dispo-Liste hinein (LIEFERUNG...)" value={importText} onChange={(e) => setImportText(e.target.value)}></textarea>
+                            <div className="grid grid-cols-2 gap-4 mt-6">
+                                <button onClick={() => setShowImportModal(false)} className="py-4 text-slate-400 font-black uppercase text-[10px]">Abbrechen</button>
+                                <button onClick={processTextImport} className="bg-indigo-600 text-white py-4 rounded-xl font-black uppercase text-[10px]">Import starten</button>
                             </div>
                         </div>
                     )}
@@ -417,140 +490,65 @@
 
             if (view === 'worker_list') return (
                 <div className="min-h-screen bg-slate-950 pb-20 page-transition">
-                    <header className="p-8 pt-12 flex justify-between items-center">
-                        <div>
-                            <h1 className="text-3xl font-black text-white italic leading-none tracking-tighter">MO-BOARD</h1>
-                            <p className="text-blue-500 text-[9px] font-black uppercase tracking-[0.2em] mt-1">Status: Aktiv</p>
+                    <header className="p-6 flex flex-col gap-4 border-b border-white/5">
+                        <div className="flex justify-between items-center">
+                            <h1 className="text-xl font-black text-white italic uppercase tracking-tighter">MO-BOARD</h1>
+                            <button onClick={() => setView('login')} className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-slate-500"><Icon name="power" size={18}/></button>
                         </div>
-                        <button onClick={() => setView('login')} className="w-12 h-12 bg-slate-900 rounded-xl flex items-center justify-center text-slate-500 border border-white/5 active:scale-90"><Icon name="power" size={22}/></button>
-                    </header>
-
-                    <main className="px-6 space-y-8">
-                        <div className="relative">
-                            <input 
-                                type="text" 
-                                placeholder="Auftrag suchen..." 
-                                className="w-full bg-slate-900 border border-white/5 rounded-2xl py-5 pl-12 pr-6 text-base font-bold text-white outline-none focus:border-blue-600 transition-all shadow-xl"
-                                value={workerSearchTerm}
-                                onChange={(e) => setWorkerSearchTerm(e.target.value)}
-                            />
-                            <Icon name="search" size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
-                        </div>
-
-                        <div className="space-y-5">
-                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-2">Offene Aufträge</p>
-                            {objects.filter(o => o.status !== 'finished' && o.name.toLowerCase().includes(workerSearchTerm.toLowerCase())).map(obj => (
-                                <button key={obj.id} onClick={() => { setSelectedObject(obj); setView('worker_edit'); }} className="w-full bg-slate-900/40 rounded-[2rem] border border-white/5 p-8 text-left btn-tactile shadow-xl flex items-center justify-between group">
-                                    <div className="flex-1 mr-4">
-                                        <h3 className="text-xl font-black text-white italic mb-1 truncate">{obj.name}</h3>
-                                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{obj.customer}</p>
-                                    </div>
-                                    <div className="w-10 h-10 bg-blue-600/10 rounded-xl flex items-center justify-center text-blue-500 border border-blue-500/20 group-hover:bg-blue-600 group-hover:text-white transition-all">
-                                        <Icon name="chevron-right" size={20}/>
-                                    </div>
-                                </button>
+                        <div className="flex gap-2 justify-center">
+                            {['de', 'sq', 'it'].map(l => (
+                                <button key={l} onClick={() => setLang(l)} className={`px-3 py-1 rounded-lg text-[10px] font-bold border transition-all ${lang === l ? 'bg-blue-600 border-blue-400 text-white' : 'bg-slate-900 border-white/10 text-slate-400'}`}>{l === 'de' ? '🇩🇪 DE' : l === 'sq' ? '🇦🇱 SQ' : '🇮🇹 IT'}</button>
                             ))}
                         </div>
+                    </header>
+                    <main className="p-4 space-y-3">
+                        <input type="text" placeholder={t.search} className="w-full bg-slate-900 border border-white/5 rounded-xl py-3 px-4 text-sm font-bold text-white outline-none" value={workerSearchTerm} onChange={(e) => setWorkerSearchTerm(e.target.value)} />
+                        {objects.filter(o => o.status !== 'finished' && o.address.toLowerCase().includes(workerSearchTerm.toLowerCase())).map(obj => (
+                            <button key={obj.id} onClick={() => { setSelectedObject(obj); setView('worker_edit'); }} className="w-full bg-slate-900/50 rounded-xl border border-white/5 p-4 text-left flex justify-between items-center">
+                                <div>
+                                    <h3 className="text-xs font-black text-white uppercase italic truncate max-w-[200px]">{obj.address}</h3>
+                                    <p className="text-[9px] font-bold text-slate-500 uppercase">{obj.customer} • {obj.houseInfo}</p>
+                                </div>
+                                <Icon name="chevron-right" size={16} className="text-blue-500" />
+                            </button>
+                        ))}
                     </main>
                 </div>
             );
 
             if (view === 'worker_edit') return (
                 <div className="min-h-screen bg-slate-950 flex flex-col page-transition">
-                    <header className="p-6 sticky top-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center gap-5 border-b border-white/5">
-                        <button onClick={() => { setView('worker_list'); setWorkerSelectedHouse(''); setWorkerBlocked(false); setWorkerBlockReason(''); }} className="w-12 h-12 glass rounded-xl flex items-center justify-center text-blue-500 active:scale-90 transition-all">
-                            <Icon name="arrow-left" size={24}/>
-                        </button>
-                        <div>
-                            <h2 className="text-lg font-black text-white italic tracking-tight truncate max-w-[200px]">{selectedObject?.name}</h2>
-                            <p className="text-[9px] font-black text-slate-500 uppercase">Dateneingabe</p>
-                        </div>
+                    <header className="p-4 flex items-center gap-4 border-b border-white/5">
+                        <button onClick={() => { setView('worker_list'); setWorkerStatusMode(''); }} className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-blue-500"><Icon name="arrow-left" size={20}/></button>
+                        <h2 className="text-[10px] font-black text-white uppercase italic truncate">{selectedObject?.address}</h2>
                     </header>
-
-                    <main className="p-8 flex-1 space-y-10 max-w-xl mx-auto w-full">
-                        <div className="space-y-6">
-                            <div className="space-y-3">
-                                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">1. Welches Haus?</label>
-                                <select 
-                                    className="w-full bg-slate-900 border-2 border-slate-800 rounded-2xl p-5 text-xl font-black text-white focus:border-blue-600 outline-none transition-all shadow-2xl"
-                                    value={workerSelectedHouse}
-                                    onChange={(e) => setWorkerSelectedHouse(e.target.value)}
-                                >
-                                    <option value="">WÄHLEN...</option>
-                                    {selectedObject?.houses.map(h => (
-                                        <option key={h.name} value={h.name} disabled={h.current >= h.target}>{h.name.toUpperCase()} ({h.current}/{h.target})</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {workerSelectedHouse && (
-                                <div className="space-y-10 animate-in pt-4">
-                                    <div className="text-center space-y-6">
-                                        <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest">2. Wie viele wurden montiert?</p>
-                                        <div className="flex items-center justify-center gap-8">
-                                            <button onClick={() => setWorkerAmount(Math.max(0, parseInt(workerAmount||0)-1).toString())} className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center text-white border border-white/5 active:scale-90"><Icon name="minus" size={24}/></button>
-                                            <input 
-                                                type="number" 
-                                                inputMode="numeric" 
-                                                className="w-24 bg-transparent text-5xl font-black text-white text-center outline-none" 
-                                                placeholder="0"
-                                                value={workerAmount}
-                                                onChange={(e) => setWorkerAmount(e.target.value)}
-                                            />
-                                            <button onClick={() => setWorkerAmount((parseInt(workerAmount||0)+1).toString())} className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center text-white border border-white/5 active:scale-90"><Icon name="plus" size={24}/></button>
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 gap-4">
-                                        <button 
-                                            onClick={() => setWorkerDeliveryFinished(!workerDeliveryFinished)} 
-                                            className={`p-6 rounded-2xl border-2 flex items-center gap-4 transition-all ${workerDeliveryFinished ? 'bg-blue-600 border-blue-400' : 'bg-slate-900/50 border-white/5'}`}
-                                        >
-                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${workerDeliveryFinished ? 'bg-white text-blue-600' : 'bg-slate-800 text-slate-500'}`}>
-                                                <Icon name="check" size={20}/>
-                                            </div>
-                                            <span className={`text-xs font-black uppercase ${workerDeliveryFinished ? 'text-white' : 'text-slate-400'}`}>Haus komplett fertig</span>
-                                        </button>
-
-                                        <button 
-                                            onClick={() => setWorkerBlocked(!workerBlocked)} 
-                                            className={`p-6 rounded-2xl border-2 flex items-center gap-4 transition-all ${workerBlocked ? 'bg-red-600 border-red-400' : 'bg-slate-900/50 border-white/5'}`}
-                                        >
-                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${workerBlocked ? 'bg-white text-red-600' : 'bg-slate-800 text-slate-500'}`}>
-                                                <Icon name="alert-triangle" size={20}/>
-                                            </div>
-                                            <span className={`text-xs font-black uppercase ${workerBlocked ? 'text-white' : 'text-slate-400'}`}>Ich bin blockiert</span>
-                                        </button>
-
-                                        {workerBlocked && (
-                                            <div className="animate-in fade-in slide-in-from-top-2 space-y-2">
-                                                <label className="text-[10px] font-black text-red-500 uppercase tracking-widest ml-1">Grund für die Blockierung</label>
-                                                <textarea 
-                                                    className="w-full bg-slate-900 border border-red-500/30 rounded-2xl p-4 text-sm font-medium text-white outline-none focus:border-red-500 min-h-[100px] resize-none"
-                                                    placeholder="Warum konnte nicht montiert werden? (z.B. Material fehlt, Baustelle nicht bereit...)"
-                                                    value={workerBlockReason}
-                                                    onChange={(e) => setWorkerBlockReason(e.target.value)}
-                                                ></textarea>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="pt-6">
-                                        <button 
-                                            onClick={submitWorkerUpdate}
-                                            disabled={(!workerSelectedHouse && !workerBlocked) || (workerBlocked && !workerBlockReason.trim())}
-                                            className="w-full h-20 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-[1.5rem] text-white text-lg font-black shadow-2xl active:scale-[0.98] transition-all flex items-center justify-center gap-4 disabled:opacity-20 uppercase tracking-widest"
-                                        >
-                                            Absenden <Icon name="send" size={20}/>
-                                        </button>
-                                    </div>
+                    <main className="p-6 space-y-4 max-w-md mx-auto w-full">
+                        <button onClick={() => setWorkerStatusMode('partial')} className={`w-full p-5 rounded-2xl border flex flex-col gap-2 transition-all ${workerStatusMode === 'partial' ? 'bg-blue-600 border-blue-400' : 'bg-slate-900/50 border-white/5'}`}>
+                            <span className="text-[10px] font-black uppercase text-white tracking-widest">{t.partial}</span>
+                            {workerStatusMode === 'partial' && (
+                                <div className="mt-2 w-full space-y-2">
+                                    <p className="text-[9px] text-blue-100 font-bold uppercase">{t.openItems}</p>
+                                    <input type="number" className="w-full bg-white/10 rounded-lg p-3 text-white font-black text-center outline-none border border-white/20" placeholder={t.placeholderNum} value={workerRemaining} onChange={(e) => setWorkerRemaining(e.target.value)} onClick={(e) => e.stopPropagation()} />
                                 </div>
                             )}
-                        </div>
+                        </button>
+                        <button onClick={() => setWorkerStatusMode('finished')} className={`w-full p-5 rounded-2xl border flex items-center justify-between transition-all ${workerStatusMode === 'finished' ? 'bg-green-600 border-green-400' : 'bg-slate-900/50 border-white/5'}`}>
+                            <span className="text-[10px] font-black uppercase text-white tracking-widest">{t.finished}</span>
+                            <Icon name="check-circle" size={20} className="text-white"/>
+                        </button>
+                        <button onClick={() => setWorkerStatusMode('blocked')} className={`w-full p-5 rounded-2xl border flex flex-col gap-2 transition-all ${workerStatusMode === 'blocked' ? 'bg-red-600 border-red-400' : 'bg-slate-900/50 border-white/5'}`}>
+                            <div className="flex items-center justify-between w-full">
+                                <span className="text-[10px] font-black uppercase text-white tracking-widest">{t.blocked}</span>
+                                <Icon name="alert-triangle" size={20} className="text-white"/>
+                            </div>
+                            {workerStatusMode === 'blocked' && (
+                                <textarea className="mt-2 w-full bg-white/10 rounded-lg p-3 text-white text-[10px] font-bold outline-none border border-white/20 h-24" placeholder={t.reason} value={workerBlockReason} onChange={(e) => setWorkerBlockReason(e.target.value)} onClick={(e) => e.stopPropagation()}></textarea>
+                            )}
+                        </button>
+                        {workerStatusMode && <button onClick={submitWorkerUpdate} className="w-full py-5 bg-white text-black rounded-2xl font-black uppercase tracking-widest text-[11px] shadow-xl mt-6 active:scale-95">{t.submit}</button>}
                     </main>
                 </div>
             );
-
             return null;
         }
 
