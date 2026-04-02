@@ -14,19 +14,29 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
         import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
 
-        const firebaseConfig = JSON.parse(__firebase_config);
+        const firebaseConfig = {
+            apiKey: "AIzaSyD25cVhiguQKP4PTD8evGI4CxSh7rglbBs",
+            authDomain: "montage-pe-a5f79.firebaseapp.com",
+            projectId: "montage-pe-a5f79",
+            storageBucket: "montage-pe-a5f79.firebasestorage.app",
+            messagingSenderId: "588324363042",
+            appId: "1:588324363042:web:c544a07261f62de427237b"
+        };
+
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const auth = getAuth(app);
 
-        window.FirebaseSDK = { app, db, auth, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query, signInAnonymously, onAuthStateChanged, signInWithCustomToken };
+        // Global verfügbar machen
+        window.FirebaseSDK = { db, auth, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query, signInAnonymously, onAuthStateChanged };
     </script>
 
     <style>
         :root { --primary: #3b82f6; --bg-main: #0f172a; }
         body { overscroll-behavior-y: contain; font-family: 'Inter', sans-serif; background-color: var(--bg-main); color: #f1f5f9; -webkit-font-smoothing: antialiased; }
+        * { -webkit-tap-highlight-color: transparent; }
         .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
         .card-gradient { background: linear-gradient(135deg, rgba(30, 41, 59, 1) 0%, rgba(15, 23, 42, 1) 100%); border: 1px solid rgba(255, 255, 255, 0.05); }
         .page-transition { animation: slideUp 0.3s ease-out; }
@@ -73,6 +83,7 @@
             const [pin, setPin] = useState('');
             const [view, setView] = useState('login'); 
             const [searchTerm, setSearchTerm] = useState('');
+            const [workerSearchTerm, setWorkerSearchTerm] = useState('');
             const [showImportModal, setShowImportModal] = useState(false);
             const [importText, setImportText] = useState('');
             const [importSummary, setImportSummary] = useState(null);
@@ -81,34 +92,34 @@
             const [user, setUser] = useState(null);
             const [lang, setLang] = useState('de');
             const [adminFilter, setAdminFilter] = useState('all'); 
+            const [workerStatusMode, setWorkerStatusMode] = useState(''); 
+            const [workerRemaining, setWorkerRemaining] = useState('');
+            const [workerBlockReason, setWorkerBlockReason] = useState('');
             const [objects, setObjects] = useState([]);
 
-            const appId = typeof __app_id !== 'undefined' ? __app_id : 'montage-pe';
+            const appId = 'montage-pe-a5f79';
             const t = translations[lang];
 
             useEffect(() => {
                 const initLiveSync = async () => {
                     if (!window.FirebaseSDK) return;
-                    const { auth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, db, collection, onSnapshot, query } = window.FirebaseSDK;
+                    const { auth, signInAnonymously, onAuthStateChanged, db, collection, onSnapshot, query } = window.FirebaseSDK;
                     
                     try {
-                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                            await signInWithCustomToken(auth, __initial_auth_token);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
+                        await signInAnonymously(auth);
                     } catch(e) { console.error("Auth Error", e); }
 
                     const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
                         setUser(u);
                         if (u) {
+                            // Pfad angepasst an deine Firebase-Regel
                             const collRef = collection(db, 'artifacts', appId, 'public', 'data', 'objects');
                             const q = query(collRef);
                             const unsubscribeData = onSnapshot(q, (snapshot) => {
                                 const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                                 setObjects(data);
                             }, (err) => {
-                                console.error("Sync Error - Möglicherweise fehlen Permissions:", err);
+                                console.error("Firestore Sync Error. Prüfe Regeln!", err);
                             });
                             return () => unsubscribeData();
                         }
@@ -130,97 +141,109 @@
 
             const processTextImport = async () => {
                 if (!importText.trim()) return;
+                if (!user) {
+                    alert("Bitte warten: Verbindung zu Firebase wird noch aufgebaut...");
+                    return;
+                }
+
                 setIsImporting(true);
+                const lines = importText.split(/\r?\n/);
+                let currentDay = new Date();
+                let currentDayLabel = "Heute";
+                const newObjects = [];
+                const summaryEntries = [];
+                
+                const dayRegex = /(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\s+(\d{2}\.\d{2}\.\d{4})/i;
+
+                for (let line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+                    
+                    const dayMatch = trimmed.match(dayRegex);
+                    if (dayMatch) {
+                        const [_, dName, dStr] = dayMatch;
+                        const [d, m, y] = dStr.split('.');
+                        currentDay = new Date(y, m - 1, d);
+                        currentDayLabel = `${dName} ${dStr}`;
+                        continue;
+                    }
+
+                    if (trimmed.toUpperCase().startsWith("LIEFERUNG")) {
+                        const content = trimmed.replace(/^LIEFERUNG\s*/i, "").trim();
+                        const addressRegex = /([A-ZÄÖÜa-zäöüß\s\.\-]+\s\d*[a-z]?,\s\d{4,5}\s[A-ZÄÖÜa-zäöüß\s\.\-]+)/;
+                        const addressMatch = content.match(addressRegex);
+                        let address = addressMatch ? addressMatch[0].trim() : "Unbekannte Adresse";
+                        
+                        const parts = content.split(address);
+                        let customer = parts[0]?.trim().replace(/,$/, '') || "Kunde";
+                        let remainder = parts[1]?.trim() || "";
+                        const eleMatch = remainder.match(/(\d+)\s?ELE/i);
+                        const houseMatch = remainder.match(/(Haus\s?\d+)/i);
+                        
+                        const objId = `obj-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+                        const newObj = {
+                            id: objId,
+                            name: address,
+                            customer,
+                            address,
+                            houseInfo: houseMatch ? houseMatch[0] : "Gesamtmontage",
+                            target: eleMatch ? parseInt(eleMatch[1]) : 1,
+                            current: 0,
+                            lastRemaining: null, 
+                            blockReason: null, 
+                            deliveryDate: currentDay.toISOString(),
+                            status: 'active',
+                            history: []
+                        };
+                        newObjects.push(newObj);
+                        
+                        let entry = summaryEntries.find(e => e.label === currentDayLabel);
+                        if (!entry) summaryEntries.push({ label: currentDayLabel, count: 1 });
+                        else entry.count++;
+                    }
+                }
+
+                if (newObjects.length > 0) {
+                    const { db, doc, setDoc } = window.FirebaseSDK;
+                    try {
+                        // Jedes Objekt einzeln in die Collection schreiben
+                        for (const obj of newObjects) {
+                            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), obj);
+                        }
+                        setImportSummary({ days: summaryEntries, total: newObjects.length });
+                    } catch (e) {
+                        console.error("Firebase Save Error", e);
+                        alert(`Fehler beim Speichern: ${e.message}\nPrüfe deine Firestore-Regeln!`);
+                    }
+                }
+                setIsImporting(false);
+                setImportText(''); 
+                setShowImportModal(false);
+            };
+
+            const submitWorkerUpdate = async () => {
+                const now = new Date().toISOString();
+                const { db, doc, updateDoc } = window.FirebaseSDK;
+                const obj = selectedObject;
+                let updates = { history: [{ date: now, mode: workerStatusMode, detail: workerStatusMode === 'blocked' ? workerBlockReason : workerRemaining }, ...(obj.history || [])] };
+                
+                if (workerStatusMode === 'finished') {
+                    updates = { ...updates, current: obj.target, status: 'finished', finishedAt: now, lastRemaining: 0, blockReason: null };
+                } else if (workerStatusMode === 'blocked') {
+                    updates = { ...updates, status: 'blocked', blockReason: workerBlockReason };
+                } else if (workerStatusMode === 'partial') {
+                    const open = parseInt(workerRemaining) || 0;
+                    updates = { ...updates, current: Math.max(0, obj.target - open), status: 'active', lastRemaining: open, blockReason: null };
+                }
                 
                 try {
-                    const lines = importText.split(/\r?\n/);
-                    let currentDay = new Date();
-                    let currentDayLabel = "Unbekannt";
-                    const newObjects = [];
-                    const summaryEntries = [];
-                    
-                    const dayRegex = /(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\s+(\d{2}\.\d{2}\.\d{4})/i;
-
-                    for (let line of lines) {
-                        const trimmed = line.trim();
-                        if (!trimmed) continue;
-                        
-                        const dayMatch = trimmed.match(dayRegex);
-                        if (dayMatch) {
-                            const [_, dName, dStr] = dayMatch;
-                            const [d, m, y] = dStr.split('.');
-                            currentDay = new Date(y, m - 1, d);
-                            currentDayLabel = `${dName} ${dStr}`;
-                            continue;
-                        }
-
-                        if (trimmed.toUpperCase().includes("LIEFERUNG")) {
-                            // Extraktion optimiert für variable Leerzeichen
-                            const content = trimmed.replace(/^LIEFERUNG\s*/i, "").trim();
-                            
-                            // Regex für Adresse (Straße Nr, PLZ Ort)
-                            const addressRegex = /([A-ZÄÖÜa-zäöüß\s\.\-]+\s\d+[a-z]?,\s\d{4,5}\s[A-ZÄÖÜa-zäöüß\s\.\-]+)/;
-                            const addressMatch = content.match(addressRegex);
-                            
-                            let address = addressMatch ? addressMatch[0].trim() : "Unbekannte Adresse";
-                            let customer = "Kunde";
-                            let houseInfo = "Gesamtmontage";
-                            let eleCount = 1;
-
-                            if (addressMatch) {
-                                customer = content.split(addressMatch[0])[0]?.trim().replace(/,$/, '') || "Kunde";
-                                const remainder = content.split(addressMatch[0])[1] || "";
-                                
-                                const eleMatch = remainder.match(/(\d+)\s?ELE/i);
-                                if (eleMatch) eleCount = parseInt(eleMatch[1]);
-                                
-                                const houseMatch = remainder.match(/(Haus\s?\S+)/i);
-                                if (houseMatch) houseInfo = houseMatch[0];
-                            }
-
-                            const objId = `obj-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-                            newObjects.push({
-                                id: objId,
-                                name: address,
-                                customer,
-                                address,
-                                houseInfo,
-                                target: eleCount,
-                                current: 0,
-                                lastRemaining: null, 
-                                blockReason: null, 
-                                deliveryDate: currentDay.toISOString(),
-                                status: 'active',
-                                history: []
-                            });
-                            
-                            let entry = summaryEntries.find(e => e.label === currentDayLabel);
-                            if (!entry) summaryEntries.push({ label: currentDayLabel, count: 1 });
-                            else entry.count++;
-                        }
-                    }
-
-                    if (newObjects.length > 0) {
-                        const { db, doc, setDoc } = window.FirebaseSDK;
-                        // Batch-Save Simulation
-                        await Promise.all(newObjects.map(obj => 
-                            setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), obj)
-                        ));
-                        setImportSummary({ days: summaryEntries, total: newObjects.length });
-                        setShowImportModal(false);
-                    } else {
-                        alert("Konnte keine 'LIEFERUNG' Zeilen im Text finden. Bitte Format prüfen.");
-                    }
-                } catch (err) {
-                    console.error("Import Error:", err);
-                    alert("Konnte Daten nicht speichern. Prüfe deine Firebase-Regeln auf 'Parse Error'!");
-                } finally {
-                    setIsImporting(false);
-                    setImportText('');
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), updates);
+                    setWorkerStatusMode(''); setWorkerRemaining(''); setWorkerBlockReason(''); setView('worker_list');
+                } catch (e) {
+                    alert("Fehler beim Aktualisieren: " + e.message);
                 }
             };
 
-            // Hilfsfunktion Stats
             const stats = useMemo(() => {
                 let total = 0, done = 0, blocked = 0, partial = 0;
                 objects.forEach(obj => {
@@ -255,7 +278,10 @@
                 <div className="min-h-screen bg-slate-950 pb-20 page-transition">
                     <nav className="p-4 sticky top-0 z-40 glass border-b border-white/10 flex justify-between items-center">
                         <h2 className="text-sm font-black text-white italic uppercase tracking-widest">Admin Panel</h2>
-                        <button onClick={() => setView('login')} className="p-2 text-slate-400"><Icon name="log-out" size={18}/></button>
+                        <div className="flex items-center gap-4">
+                            {!user && <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>}
+                            <button onClick={() => setView('login')} className="p-2 text-slate-400"><Icon name="log-out" size={18}/></button>
+                        </div>
                     </nav>
                     <main className="p-4 max-w-3xl mx-auto space-y-6">
                         <div className="grid grid-cols-4 gap-2">
@@ -277,10 +303,10 @@
                             </div>
                         </div>
 
-                        <button onClick={() => setShowImportModal(true)} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-500/20 active:scale-95 transition-all">Dispo-Text Importieren</button>
+                        <button onClick={() => setShowImportModal(true)} className="w-full bg-indigo-600 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-indigo-500/20 active:scale-95 transition-transform">Dispo-Text Importieren</button>
 
                         {importSummary && (
-                            <div className="bg-blue-900/40 border border-blue-500/50 rounded-xl p-4 animate-pulse">
+                            <div className="bg-blue-900/40 border border-blue-500/50 rounded-xl p-4">
                                 <h5 className="text-[10px] font-black text-blue-400 uppercase italic mb-2">Import Erfolgreich: {importSummary.total} Objekte</h5>
                                 {importSummary.days.map((day, i) => <p key={i} className="text-[11px] font-bold text-slate-200">{day.label}: {day.count}</p>)}
                                 <button onClick={() => setImportSummary(null)} className="mt-2 text-[10px] text-slate-400 underline">Schließen</button>
@@ -288,54 +314,40 @@
                         )}
                         
                         <div className="flex items-center justify-between px-1">
-                             <h4 className="text-[10px] font-black text-slate-400 uppercase italic">Objekt Liste ({filteredObjects.length})</h4>
-                             <input type="text" placeholder="Suche..." className="bg-transparent text-[10px] font-bold text-white border-b border-white/10 outline-none w-32 focus:border-blue-500 transition-colors" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                             <h4 className="text-[10px] font-black text-slate-400 uppercase italic">Objekt Liste</h4>
+                             <input type="text" placeholder="Suche..." className="bg-transparent text-[10px] font-bold text-white border-b border-white/10 outline-none w-24" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                         </div>
 
                         <div className="space-y-3">
-                            {filteredObjects.length === 0 && <p className="text-center text-slate-600 py-10 text-xs">Keine Objekte gefunden.</p>}
                             {filteredObjects.map(obj => (
                                 <div key={obj.id} className={`card-gradient rounded-xl border p-4 relative transition-all ${obj.status === 'blocked' ? 'border-red-500/50' : 'border-white/5'}`}>
                                     <button onClick={async () => {
-                                        if(confirm('Möchten Sie dieses Objekt wirklich löschen?')) {
-                                            await window.FirebaseSDK.deleteDoc(window.FirebaseSDK.doc(window.FirebaseSDK.db, 'artifacts', appId, 'public', 'data', 'objects', obj.id));
+                                        if(confirm('Objekt endgültig löschen?')) {
+                                            const { db, doc, deleteDoc } = window.FirebaseSDK;
+                                            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id));
                                         }
-                                    }} className="absolute top-4 right-4 text-slate-600 hover:text-red-500 transition-colors"><Icon name="trash-2" size={14}/></button>
-                                    <h3 className="text-xs font-black text-white italic uppercase mb-1">{obj.address}</h3>
-                                    <p className="text-[10px] font-bold text-blue-400 mb-2">{obj.customer} | {obj.houseInfo}</p>
+                                    }} className="absolute top-4 right-4 text-slate-600 hover:text-red-500"><Icon name="trash-2" size={14}/></button>
+                                    <h3 className="text-xs font-black text-white italic uppercase mb-1 pr-6">{obj.address}</h3>
+                                    <p className="text-[10px] font-bold text-blue-400 mb-2 uppercase">{obj.customer} | {obj.houseInfo}</p>
                                     <div className="flex items-center justify-between">
-                                        <span className="text-[8px] text-slate-500 font-bold uppercase">{formatDate(obj.deliveryDate)}</span>
+                                        <span className="text-[8px] text-slate-500 font-bold uppercase tracking-wider">{formatDate(obj.deliveryDate)}</span>
                                         <span className="text-[10px] font-black text-white">{obj.current}/{obj.target} ELE</span>
                                     </div>
                                     <div className="w-full bg-slate-900 h-1.5 rounded-full mt-2 overflow-hidden">
-                                        <div className={`h-full transition-all duration-500 ${obj.status === 'blocked' ? 'bg-red-500' : 'bg-blue-600'}`} style={{width: `${(obj.current/obj.target)*100}%`}}></div>
+                                        <div className={`h-full transition-all duration-1000 ${obj.status === 'blocked' ? 'bg-red-500' : 'bg-blue-600'}`} style={{width: `${(obj.current/obj.target)*100}%`}}></div>
                                     </div>
                                 </div>
                             ))}
                         </div>
                     </main>
-
                     {showImportModal && (
-                        <div className="fixed inset-0 z-50 bg-slate-950/95 p-6 flex flex-col backdrop-blur-xl">
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-sm font-black text-white uppercase italic">Text Import</h3>
-                                <button onClick={() => setShowImportModal(false)} className="text-slate-500"><Icon name="x" size={20}/></button>
-                            </div>
-                            <p className="text-[10px] text-slate-400 mb-4 font-bold uppercase tracking-tight">Kopiere die Dispo-Liste aus der E-Mail hier hinein:</p>
-                            <textarea 
-                                className="flex-1 w-full bg-slate-900 border border-white/10 p-4 rounded-xl text-[11px] text-white outline-none font-mono focus:border-blue-500/50 transition-all" 
-                                placeholder="Dienstag 07.04.2026...&#10;LIEFERUNG Bitzer Sanitär...&#10;6 ELE..." 
-                                value={importText} 
-                                onChange={(e) => setImportText(e.target.value)}
-                            ></textarea>
+                        <div className="fixed inset-0 z-50 bg-slate-950/95 p-6 flex flex-col page-transition">
+                            <h3 className="text-sm font-black text-white uppercase italic mb-4">Text Import</h3>
+                            <textarea className="flex-1 w-full bg-slate-900 border border-white/10 p-4 rounded-xl text-[11px] text-white outline-none font-mono resize-none" placeholder="Kopiere die Dispo-Liste hier hinein..." value={importText} onChange={(e) => setImportText(e.target.value)}></textarea>
                             <div className="grid grid-cols-2 gap-4 mt-6">
-                                <button onClick={() => setShowImportModal(false)} className="py-4 text-slate-400 font-black uppercase text-[10px] bg-white/5 rounded-xl">Abbrechen</button>
-                                <button 
-                                    onClick={processTextImport} 
-                                    disabled={isImporting} 
-                                    className={`py-4 rounded-xl font-black uppercase text-[10px] transition-all ${isImporting ? 'bg-slate-800 text-slate-500' : 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20'}`}
-                                >
-                                    {isImporting ? 'Verarbeite Daten...' : 'Import starten'}
+                                <button onClick={() => setShowImportModal(false)} className="py-4 text-slate-400 font-black uppercase text-[10px]">Abbrechen</button>
+                                <button onClick={processTextImport} disabled={isImporting} className="bg-indigo-600 text-white py-4 rounded-xl font-black uppercase text-[10px] disabled:opacity-50">
+                                    {isImporting ? 'Lädt...' : 'Import starten'}
                                 </button>
                             </div>
                         </div>
@@ -343,10 +355,9 @@
                 </div>
             );
 
-            // Arbeiter-Sichten analog zum vorherigen funktionierenden Stand
             if (view === 'worker_list') return (
-                <div className="min-h-screen bg-slate-950 pb-20">
-                     <header className="p-6 flex flex-col gap-4 border-b border-white/5">
+                <div className="min-h-screen bg-slate-950 pb-20 page-transition">
+                    <header className="p-6 flex flex-col gap-4 border-b border-white/5">
                         <div className="flex justify-between items-center">
                             <h1 className="text-xl font-black text-white italic uppercase tracking-tighter">MO-BOARD</h1>
                             <button onClick={() => setView('login')} className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-slate-500"><Icon name="power" size={18}/></button>
@@ -356,23 +367,43 @@
                         </div>
                     </header>
                     <main className="p-4 space-y-3">
-                         <div className="text-[10px] font-black text-slate-500 uppercase mb-2">Offene Montagen</div>
-                         {objects.filter(o => o.status !== 'finished').map(obj => (
-                            <button key={obj.id} onClick={() => { setSelectedObject(obj); setView('worker_edit'); }} className="w-full bg-slate-900/50 rounded-xl border border-white/5 p-4 text-left flex justify-between items-center">
+                        <input type="text" placeholder={t.search} className="w-full bg-slate-900 border border-white/5 rounded-xl py-3 px-4 text-sm font-bold text-white outline-none focus:border-blue-500" value={workerSearchTerm} onChange={(e) => setWorkerSearchTerm(e.target.value)} />
+                        {objects.filter(o => o.status !== 'finished' && o.address.toLowerCase().includes(workerSearchTerm.toLowerCase())).map(obj => (
+                            <button key={obj.id} onClick={() => { setSelectedObject(obj); setView('worker_edit'); }} className="w-full bg-slate-900/50 rounded-xl border border-white/5 p-4 text-left flex justify-between items-center active:bg-slate-800">
                                 <div>
                                     <h3 className="text-xs font-black text-white uppercase italic truncate max-w-[200px]">{obj.address}</h3>
-                                    <p className="text-[9px] font-bold text-slate-500 uppercase">{obj.customer} • {obj.houseInfo}</p>
+                                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">{obj.customer} • {obj.houseInfo}</p>
                                 </div>
-                                <div className="flex items-center gap-3">
-                                    <span className="text-[10px] font-black text-blue-500">{obj.current}/{obj.target}</span>
-                                    <Icon name="chevron-right" size={16} className="text-slate-700" />
-                                </div>
+                                <Icon name="chevron-right" size={16} className="text-blue-500" />
                             </button>
                         ))}
                     </main>
                 </div>
             );
 
+            if (view === 'worker_edit') return (
+                <div className="min-h-screen bg-slate-950 flex flex-col page-transition">
+                    <header className="p-4 flex items-center gap-4 border-b border-white/5">
+                        <button onClick={() => { setView('worker_list'); setWorkerStatusMode(''); }} className="w-10 h-10 bg-slate-900 rounded-xl flex items-center justify-center text-blue-500"><Icon name="arrow-left" size={20}/></button>
+                        <h2 className="text-[10px] font-black text-white uppercase italic truncate">{selectedObject?.address}</h2>
+                    </header>
+                    <main className="p-6 space-y-4 max-w-md mx-auto w-full">
+                        <button onClick={() => setWorkerStatusMode('partial')} className={`w-full p-5 rounded-2xl border flex flex-col gap-2 transition-all ${workerStatusMode === 'partial' ? 'bg-blue-600 scale-[1.02] border-blue-400' : 'bg-slate-900/50 border-white/5 opacity-70'}`}>
+                            <span className="text-[10px] font-black uppercase text-white">{t.partial}</span>
+                            {workerStatusMode === 'partial' && <input type="number" className="w-full bg-white/10 rounded-lg p-3 text-white font-black text-center outline-none border border-white/20" placeholder={t.placeholderNum} value={workerRemaining} onChange={(e) => setWorkerRemaining(e.target.value)} onClick={(e) => e.stopPropagation()} autoFocus />}
+                        </button>
+                        <button onClick={() => setWorkerStatusMode('finished')} className={`w-full p-5 rounded-2xl border flex items-center justify-between transition-all ${workerStatusMode === 'finished' ? 'bg-green-600 scale-[1.02] border-green-400' : 'bg-slate-900/50 border-white/5 opacity-70'}`}>
+                            <span className="text-[10px] font-black uppercase text-white">{t.finished}</span>
+                            <Icon name="check-circle" size={20} className="text-white"/>
+                        </button>
+                        <button onClick={() => setWorkerStatusMode('blocked')} className={`w-full p-5 rounded-2xl border flex flex-col gap-2 transition-all ${workerStatusMode === 'blocked' ? 'bg-red-600 scale-[1.02] border-red-400' : 'bg-slate-900/50 border-white/5 opacity-70'}`}>
+                            <span className="text-[10px] font-black uppercase text-white">{t.blocked}</span>
+                            {workerStatusMode === 'blocked' && <textarea className="mt-2 w-full bg-white/10 rounded-lg p-3 text-white text-[10px] font-bold h-24 border border-white/20 outline-none" placeholder={t.reason} value={workerBlockReason} onChange={(e) => setWorkerBlockReason(e.target.value)} onClick={(e) => e.stopPropagation()} autoFocus></textarea>}
+                        </button>
+                        {workerStatusMode && <button onClick={submitWorkerUpdate} className="w-full py-5 bg-white text-black rounded-2xl font-black uppercase tracking-widest text-[11px] mt-6 shadow-xl shadow-white/5 active:scale-95 transition-transform">Senden</button>}
+                    </main>
+                </div>
+            );
             return null;
         }
 
