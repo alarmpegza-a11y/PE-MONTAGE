@@ -244,7 +244,7 @@
                 setEditObject(null);
             };
 
-            // NEU: Bild-Kompression für Handy-Optimierung
+            // FIX: Foto-Optimierung direkt beim Auswählen für Mobile
             const compressImage = (file) => {
                 return new Promise((resolve) => {
                     const reader = new FileReader();
@@ -254,24 +254,16 @@
                             const canvas = document.createElement('canvas');
                             let width = img.width;
                             let height = img.height;
-                            const MAX_SIZE = 1024; // Reduzierte Größe für schnellere Übertragung auf Mobilgeräten
-
-                            if (width > height) {
-                                if (width > MAX_SIZE) {
-                                    height *= MAX_SIZE / width;
-                                    width = MAX_SIZE;
-                                }
-                            } else {
-                                if (height > MAX_SIZE) {
-                                    width *= MAX_SIZE / height;
-                                    height = MAX_SIZE;
-                                }
+                            const MAX_WIDTH = 1200;
+                            if (width > MAX_WIDTH) {
+                                height *= MAX_WIDTH / width;
+                                width = MAX_WIDTH;
                             }
                             canvas.width = width;
                             canvas.height = height;
                             const ctx = canvas.getContext('2d');
                             ctx.drawImage(img, 0, 0, width, height);
-                            resolve(canvas.toDataURL('image/jpeg', 0.7)); // Kompression auf 70% Qualität
+                            resolve(canvas.toDataURL('image/jpeg', 0.8));
                         };
                         img.src = e.target.result;
                     };
@@ -282,61 +274,59 @@
             const handleFileChange = async (e) => {
                 const files = Array.from(e.target.files);
                 if (!files.length) return;
-
+                
                 const processed = [];
                 for (const file of files) {
-                    try {
-                        const base64 = await compressImage(file);
-                        processed.push(base64);
-                    } catch (err) {
-                        console.error("Datei-Fehler:", err);
-                    }
+                    const base64 = await compressImage(file);
+                    processed.push(base64);
                 }
                 setPendenzForm(prev => ({ ...prev, images: [...prev.images, ...processed] }));
                 e.target.value = '';
             };
 
+            // FIX: Mobile-optimierte Sende-Funktion
             const submitPendenz = async (e) => {
                 if (e) {
                     e.preventDefault();
                     e.stopPropagation();
                 }
-                
+
                 if (!pendenzForm.description || !pendenzForm.monteur || !showPendenzModal || isSubmittingPendenz) return;
                 
                 setIsSubmittingPendenz(true);
-                
-                // Entkoppelung für Mobilgeräte
-                requestAnimationFrame(async () => {
+
+                // Timeout nutzen, um dem Browser Zeit zu geben, die UI zu aktualisieren (verhindert "Hängen")
+                setTimeout(async () => {
                     try {
                         const { db, addDoc, collection } = window.FirebaseSDK;
                         const objectToLink = showPendenzModal;
                         
+                        // Payload vorbereiten - explizite Kopie der Bilder
                         const payload = {
-                            objectId: objectToLink.id, 
-                            address: objectToLink.address, 
+                            objectId: objectToLink.id,
+                            address: objectToLink.address,
                             description: pendenzForm.description.trim(),
-                            deadline: pendenzForm.deadline || new Date().toISOString().split('T')[0], 
-                            monteur: pendenzForm.monteur.trim(), 
-                            images: pendenzForm.images || [], 
-                            status: 'open', 
+                            deadline: pendenzForm.deadline || new Date().toISOString().split('T')[0],
+                            monteur: pendenzForm.monteur.trim(),
+                            images: [...pendenzForm.images], // Sicherstellen, dass es ein frisches Array ist
+                            status: 'open',
                             createdAt: new Date().toISOString()
                         };
-                        
+
                         await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'pendenzen'), payload);
                         
                         setSubmitSuccess(true);
                         setTimeout(() => {
                             setSubmitSuccess(false);
                             setPendenzForm({ description: '', deadline: '', monteur: '', images: [] });
-                            setShowPendenzModal(null); 
+                            setShowPendenzModal(null);
                             setIsSubmittingPendenz(false);
                         }, 1200);
                     } catch (err) {
-                        console.error("Firestore Error:", err);
+                        console.error("Firestore Error Mobile:", err);
                         setIsSubmittingPendenz(false);
                     }
-                });
+                }, 50);
             };
 
             const markPendenzDone = async (pId) => {
