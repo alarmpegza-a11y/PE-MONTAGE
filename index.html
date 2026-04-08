@@ -14,7 +14,7 @@
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js";
-        import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query, addDoc } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
+        import { getFirestore, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query, addDoc, getDocs } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.1.0/firebase-auth.js";
 
         const firebaseConfig = {
@@ -30,7 +30,7 @@
         const db = getFirestore(app);
         const auth = getAuth(app);
 
-        window.FirebaseSDK = { db, auth, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query, addDoc, signInAnonymously, onAuthStateChanged };
+        window.FirebaseSDK = { db, auth, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query, addDoc, getDocs, signInAnonymously, onAuthStateChanged };
     </script>
 
     <style>
@@ -71,9 +71,9 @@
         const { useState, useEffect, useMemo, useRef, memo } = React;
 
         const translations = {
-            de: { partial: "Offen zum montieren", finished: "Fertig montiert", blocked: "Blockiert / Problem", openItems: "Offen?", reason: "Grund...", submit: "Senden", cancel: "Abbrechen", placeholderNum: "Zahl...", back: "Zurück", search: "Suchen..." },
-            sq: { partial: "Hapur për montim", finished: "Përfunduar", blocked: "Bllokuar", openItems: "Hapur?", reason: "Arsyeja...", submit: "Dërgo", cancel: "Anulo", placeholderNum: "Numri...", back: "Mbrapa", search: "Kërko..." },
-            it: { partial: "Aperto per il montaggio", finished: "Finito", blocked: "Bloccato", openItems: "Aperti?", reason: "Motivo...", submit: "Invia", cancel: "Indietro", placeholderNum: "Num...", back: "Indietro", search: "Cerca..." }
+            de: { partial: "Offen zum montieren", finished: "Fertig montiert", blocked: "Blockiert / Problem", hours: "Stunden erfassen", openItems: "Offen?", reason: "Grund...", submit: "Senden", cancel: "Abbrechen", placeholderNum: "Zahl...", back: "Zurück", search: "Suchen..." },
+            sq: { partial: "Hapur për montim", finished: "Përfunduar", blocked: "Bllokuar", hours: "Regjistro orët", openItems: "Hapur?", reason: "Arsyeja...", submit: "Dërgo", cancel: "Anulo", placeholderNum: "Numri...", back: "Mbrapa", search: "Kërko..." },
+            it: { partial: "Aperto per il montaggio", finished: "Finito", blocked: "Bloccato", hours: "Registra ore", openItems: "Aperti?", reason: "Motivo...", submit: "Invia", cancel: "Indietro", placeholderNum: "Num...", back: "Indietro", search: "Cerca..." }
         };
 
         const Icon = memo(({ name, size = 24, className = "" }) => {
@@ -98,6 +98,7 @@
 
         const ADMIN_PIN = "8852";
         const WORKER_PIN = "8623";
+        const HOURS_PIN = "8888";
 
         function App() {
             const [pin, setPin] = useState('');
@@ -115,14 +116,21 @@
             const [workerStatusMode, setWorkerStatusMode] = useState(''); 
             const [workerRemaining, setWorkerRemaining] = useState('');
             const [workerBlockReason, setWorkerBlockReason] = useState('');
-            const [objects, setObjects] = useState([]);
+            const [workerHours, setWorkerHours] = useState('');
+            const [workerHoursDate, setWorkerHoursDate] = useState(new Date().toISOString().split('T')[0]);
+            const [workerHoursName, setWorkerHoursName] = useState('');
             
+            const [objects, setObjects] = useState([]);
             const [pendenzen, setPendenzen] = useState([]);
+            const [hourLogs, setHourLogs] = useState([]);
+            const [monteurs, setMonteurs] = useState([]);
+            
             const [showPendenzModal, setShowPendenzModal] = useState(null);
             const [pendenzForm, setPendenzForm] = useState({ description: '', deadline: '', monteur: '', images: [] });
             
             const [showMyPendenzen, setShowMyPendenzen] = useState(null);
             const [printData, setPrintData] = useState(null);
+            const [hourPrintData, setHourPrintData] = useState(null);
 
             const appId = 'montage-pe-a5f79';
             const t = translations[lang];
@@ -135,15 +143,10 @@
                     const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
                         setUser(u);
                         if (u) {
-                            const objRef = collection(db, 'artifacts', appId, 'public', 'data', 'objects');
-                            const unsubscribeObjects = onSnapshot(query(objRef), (snapshot) => {
-                                setObjects(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                            });
-                            const penRef = collection(db, 'artifacts', appId, 'public', 'data', 'pendenzen');
-                            const unsubscribePendenzen = onSnapshot(query(penRef), (snapshot) => {
-                                setPendenzen(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                            });
-                            return () => { unsubscribeObjects(); unsubscribePendenzen(); };
+                            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'objects'), (s) => setObjects(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+                            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'pendenzen'), (s) => setPendenzen(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+                            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'hours'), (s) => setHourLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+                            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'monteurs'), (s) => setMonteurs(s.docs.map(d => ({ id: d.id, ...d.data() }))));
                         }
                     });
                     return () => unsubscribeAuth();
@@ -157,6 +160,7 @@
                 else {
                     if (newPin === ADMIN_PIN) setView('dashboard');
                     else if (newPin === WORKER_PIN) setView('worker_list');
+                    else if (newPin === HOURS_PIN) setView('hours_admin');
                     setPin('');
                 }
             };
@@ -208,17 +212,25 @@
 
             const submitWorkerUpdate = async () => {
                 const now = new Date().toISOString();
-                const { db, doc, updateDoc } = window.FirebaseSDK;
+                const { db, doc, updateDoc, addDoc, collection } = window.FirebaseSDK;
                 const obj = selectedObject;
-                let updates = { history: [{ date: now, mode: workerStatusMode, detail: workerStatusMode === 'blocked' ? workerBlockReason : workerRemaining }, ...(obj.history || [])] };
-                if (workerStatusMode === 'finished') updates = { ...updates, current: obj.target, status: 'finished', finishedAt: now, lastRemaining: 0, blockReason: null };
-                else if (workerStatusMode === 'blocked') updates = { ...updates, status: 'blocked', blockReason: workerBlockReason };
-                else if (workerStatusMode === 'partial') {
-                    const open = parseInt(workerRemaining) || 0;
-                    updates = { ...updates, current: Math.max(0, obj.target - open), status: 'active', lastRemaining: open, blockReason: null };
+                
+                if (workerStatusMode === 'hours') {
+                    if (!workerHoursName || !workerHours) return;
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'hours'), {
+                        objectId: obj.id, address: obj.address, monteurName: workerHoursName, hours: parseFloat(workerHours), date: workerHoursDate, createdAt: now
+                    });
+                } else {
+                    let updates = { history: [{ date: now, mode: workerStatusMode, detail: workerStatusMode === 'blocked' ? workerBlockReason : workerRemaining }, ...(obj.history || [])] };
+                    if (workerStatusMode === 'finished') updates = { ...updates, current: obj.target, status: 'finished', finishedAt: now, lastRemaining: 0, blockReason: null };
+                    else if (workerStatusMode === 'blocked') updates = { ...updates, status: 'blocked', blockReason: workerBlockReason };
+                    else if (workerStatusMode === 'partial') {
+                        const open = parseInt(workerRemaining) || 0;
+                        updates = { ...updates, current: Math.max(0, obj.target - open), status: 'active', lastRemaining: open, blockReason: null };
+                    }
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), updates);
                 }
-                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), updates);
-                setWorkerStatusMode(''); setWorkerRemaining(''); setWorkerBlockReason(''); setView('worker_list');
+                setWorkerStatusMode(''); setWorkerRemaining(''); setWorkerBlockReason(''); setWorkerHours(''); setView('worker_list');
             };
 
             const saveManualEdit = async () => {
@@ -232,25 +244,30 @@
 
             const handleFileChange = (e) => {
                 const files = Array.from(e.target.files);
+                const processedImages = [];
+                let loaded = 0;
+                
                 files.forEach(file => {
                     const reader = new FileReader();
                     reader.onload = (ev) => {
-                        setPendenzForm(prev => ({ ...prev, images: [...prev.images, ev.target.result] }));
+                        processedImages.push(ev.target.result);
+                        loaded++;
+                        if (loaded === files.length) {
+                            setPendenzForm(prev => ({ ...prev, images: [...prev.images, ...processedImages] }));
+                        }
                     };
                     reader.readAsDataURL(file);
                 });
             };
 
             const submitPendenz = async (e) => {
-                if (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
+                if (e) { e.preventDefault(); e.stopPropagation(); }
                 if (!pendenzForm.description || !pendenzForm.monteur || !showPendenzModal) return;
                 
                 try {
                     const { db, addDoc, collection } = window.FirebaseSDK;
                     const objectToLink = showPendenzModal;
+                    const imagesToSave = [...pendenzForm.images];
                     
                     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'pendenzen'), {
                         objectId: objectToLink.id, 
@@ -258,7 +275,7 @@
                         description: pendenzForm.description,
                         deadline: pendenzForm.deadline, 
                         monteur: pendenzForm.monteur.trim(), 
-                        images: pendenzForm.images, 
+                        images: imagesToSave, 
                         status: 'open', 
                         createdAt: new Date().toISOString()
                     });
@@ -266,7 +283,7 @@
                     setShowPendenzModal(null); 
                     setPendenzForm({ description: '', deadline: '', monteur: '', images: [] });
                 } catch (err) {
-                    console.error("Fehler beim Speichern der Pendenz:", err);
+                    console.error("Speicherfehler:", err);
                 }
             };
 
@@ -275,21 +292,32 @@
                 await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pendenzen', pId), { status: 'done', doneAt: new Date().toISOString() });
             };
 
+            const addMonteur = async (name) => {
+                if (!name.trim()) return;
+                const { db, collection, addDoc } = window.FirebaseSDK;
+                await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'monteurs'), { name: name.trim() });
+            };
+
+            const deleteMonteur = async (id) => {
+                const { db, doc, deleteDoc } = window.FirebaseSDK;
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'monteurs', id));
+            };
+
             const triggerDownloadPDF = (data) => {
                 setPrintData(data);
                 setTimeout(() => {
                     const element = document.getElementById('print-area-content');
                     if (!element) return;
-                    const opt = {
-                        margin:       [15, 15],
-                        filename:     `Pendenz_${data.monteur.replace(/\s+/g, '_')}_${new Date().toLocaleDateString('de-DE').replace(/\./g, '-')}.pdf`,
-                        image:        { type: 'jpeg', quality: 0.98 },
-                        html2canvas:  { scale: 2, useCORS: true, letterRendering: true },
-                        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-                    };
-                    html2pdf().set(opt).from(element).save().then(() => {
-                        setPrintData(null);
-                    });
+                    html2pdf().set({ margin: [15, 15], filename: `Pendenz_${data.monteur.replace(/\s+/g, '_')}.pdf`, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4' } }).from(element).save().then(() => setPrintData(null));
+                }, 100);
+            };
+
+            const triggerHoursPDF = (summary) => {
+                setHourPrintData(summary);
+                setTimeout(() => {
+                    const element = document.getElementById('hour-print-area-content');
+                    if (!element) return;
+                    html2pdf().set({ margin: [15, 15], filename: `Stundenbericht_${summary.name}.pdf`, html2canvas: { scale: 2 }, jsPDF: { unit: 'mm', format: 'a4' } }).from(element).save().then(() => setHourPrintData(null));
                 }, 100);
             };
 
@@ -302,6 +330,51 @@
                 });
                 return { open: objects.filter(o => o.status === 'active').length, percent: total > 0 ? Math.round((done/total)*100) : 0, blocked, partial, pendenzen: pendenzen.filter(p => p.status === 'open').length };
             }, [objects, pendenzen]);
+
+            const hourSummaries = useMemo(() => {
+                const map = {};
+                monteurs.forEach(m => {
+                    map[m.name] = { 
+                        name: m.name, 
+                        week: 0, 
+                        month: 0, 
+                        total: 0, 
+                        logs: [], 
+                        weekDetails: { 'Mo': 0, 'Di': 0, 'Mi': 0, 'Do': 0, 'Fr': 0, 'Sa': 0 } 
+                    };
+                });
+                
+                const now = new Date();
+                const dayOfWeek = now.getDay(); // 0 (Sun) to 6 (Sat)
+                const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); // Start with Mon
+                const startOfWeek = new Date(now.setDate(diff));
+                startOfWeek.setHours(0,0,0,0);
+                
+                const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+                hourLogs.forEach(log => {
+                    if (!map[log.monteurName]) {
+                        map[log.monteurName] = { name: log.monteurName, week: 0, month: 0, total: 0, logs: [], weekDetails: { 'Mo': 0, 'Di': 0, 'Mi': 0, 'Do': 0, 'Fr': 0, 'Sa': 0 } };
+                    }
+                    const logDate = new Date(log.date);
+                    const h = parseFloat(log.hours) || 0;
+                    map[log.monteurName].total += h;
+                    map[log.monteurName].logs.push(log);
+                    
+                    if (logDate >= startOfMonth) map[log.monteurName].month += h;
+                    
+                    if (logDate >= startOfWeek) {
+                        map[log.monteurName].week += h;
+                        const day = logDate.getDay();
+                        const dayLabels = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
+                        const label = dayLabels[day];
+                        if (label !== 'So' && map[log.monteurName].weekDetails[label] !== undefined) {
+                            map[log.monteurName].weekDetails[label] += h;
+                        }
+                    }
+                });
+                return Object.values(map);
+            }, [hourLogs, monteurs]);
 
             const filteredObjectsAdmin = useMemo(() => {
                 let list = objects;
@@ -322,9 +395,7 @@
 
             const activeMonteurs = useMemo(() => {
                 const names = new Set();
-                pendenzen.filter(p => p.status === 'open').forEach(p => {
-                    if (p.monteur) names.add(p.monteur.trim());
-                });
+                pendenzen.filter(p => p.status === 'open').forEach(p => { if (p.monteur) names.add(p.monteur.trim()); });
                 return Array.from(names).sort();
             }, [pendenzen]);
 
@@ -332,23 +403,39 @@
                 if (!printData) return null;
                 return (
                     <div id="print-area" className="hidden">
-                        <div id="print-area-content" className="p-8 bg-white text-black" style={{ fontFamily: 'Inter, sans-serif' }}>
-                            <div className="border-b-4 border-black pb-4 mb-6">
-                                <h1 className="text-3xl font-black uppercase italic text-black">Pendenz-Report</h1>
+                        <div id="print-area-content" className="p-8 bg-white text-black">
+                            <h1 className="text-2xl font-black mb-6 uppercase">Pendenz-Report</h1>
+                            <p><strong>Objekt:</strong> {printData.address}</p>
+                            <p><strong>Monteur:</strong> {printData.monteur}</p>
+                            <p><strong>Frist:</strong> {formatDate(printData.deadline)}</p>
+                            <p className="mt-4 border-l-4 border-black pl-4"><strong>Mangel:</strong><br/>{printData.description}</p>
+                            {printData.images?.map((img, i) => <img key={i} src={img} className="w-full mt-4 border" />)}
+                        </div>
+                    </div>
+                );
+            };
+
+            const HourPrintArea = () => {
+                if (!hourPrintData) return null;
+                return (
+                    <div id="hour-print-area" className="hidden">
+                        <div id="hour-print-area-content" className="p-8 bg-white text-black">
+                            <h1 className="text-2xl font-black mb-2 uppercase">Stundenbericht</h1>
+                            <h2 className="text-xl font-bold mb-6">{hourPrintData.name}</h2>
+                            <div className="grid grid-cols-2 gap-4 mb-8">
+                                <div className="border p-4"> Woche: <strong>{hourPrintData.week}h</strong> </div>
+                                <div className="border p-4"> Monat: <strong>{hourPrintData.month}h</strong> </div>
                             </div>
-                            <div className="space-y-6">
-                                <div><h2 className="text-[10px] font-black uppercase text-slate-500 mb-1">Objekt</h2><p className="text-xl font-bold">{printData.address}</p></div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div><h2 className="text-[10px] font-black uppercase text-slate-500 mb-1">Monteur</h2><p className="text-lg font-bold">{printData.monteur}</p></div>
-                                    <div><h2 className="text-[10px] font-black uppercase text-slate-500 mb-1">Frist</h2><p className="text-lg font-bold">{formatDate(printData.deadline)}</p></div>
-                                </div>
-                                <div><h2 className="text-[10px] font-black uppercase text-slate-500 mb-1">Mangel</h2><p className="text-base font-medium border-l-2 border-black pl-4">{printData.description}</p></div>
-                                {printData.images?.length > 0 && (
-                                    <div className="grid grid-cols-2 gap-2 pt-4">
-                                        {printData.images.map((img, i) => <img key={i} src={img} className="w-full h-64 object-cover border" />)}
-                                    </div>
-                                )}
-                            </div>
+                            <table className="w-full text-left border-collapse">
+                                <thead><tr className="border-b-2 border-black">
+                                    <th className="py-2">Datum</th><th className="py-2">Objekt</th><th className="py-2 text-right">Stunden</th>
+                                </tr></thead>
+                                <tbody>{hourPrintData.logs.sort((a,b) => new Date(b.date) - new Date(a.date)).map((log, i) => (
+                                    <tr key={i} className="border-b">
+                                        <td className="py-2">{formatDate(log.date)}</td><td className="py-2">{log.address}</td><td className="py-2 text-right">{log.hours}h</td>
+                                    </tr>
+                                ))}</tbody>
+                            </table>
                         </div>
                     </div>
                 );
@@ -367,14 +454,79 @@
                 </div>
             );
 
+            if (view === 'hours_admin') return (
+                <div className="min-h-screen bg-slate-800 pb-20 page-transition">
+                    <HourPrintArea />
+                    <nav className="p-4 sticky top-0 z-40 glass border-b border-white/10 flex justify-between items-center no-print">
+                        <h2 className="text-sm font-black text-white italic uppercase">Stunden Dashboard</h2>
+                        <button onClick={() => setView('login')} className="p-2 text-slate-400"><Icon name="log-out" size={18}/></button>
+                    </nav>
+                    <main className="p-4 max-w-3xl mx-auto space-y-6">
+                        <section className="card-gradient p-6 rounded-2xl space-y-4">
+                            <h3 className="text-xs font-black text-blue-400 uppercase tracking-widest">Monteure verwalten</h3>
+                            <div className="flex gap-2">
+                                <input id="monteur-name-input" type="text" className="flex-1 bg-slate-900/50 border border-white/10 rounded-xl p-3 text-xs text-white" placeholder="Name (z.B. Martin)" />
+                                <button onClick={() => { const el = document.getElementById('monteur-name-input'); addMonteur(el.value); el.value=''; }} className="bg-blue-500 px-4 rounded-xl font-black text-xs uppercase">Neu</button>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                                {monteurs.map(m => (
+                                    <div key={m.id} className="bg-slate-800 border border-white/10 px-3 py-2 rounded-lg flex items-center gap-3">
+                                        <span className="text-[10px] font-bold text-white uppercase">{m.name}</span>
+                                        <button onClick={() => deleteMonteur(m.id)} className="text-red-400"><Icon name="trash" size={12}/></button>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                        <section className="space-y-4">
+                            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Zusammenfassung</h3>
+                            {hourSummaries.map(summary => (
+                                <div key={summary.name} className="card-gradient p-5 rounded-2xl border border-white/5 flex flex-col gap-4">
+                                    <div className="flex justify-between items-center">
+                                        <h4 className="text-sm font-black text-white uppercase italic">{summary.name}</h4>
+                                        <button onClick={() => triggerHoursPDF(summary)} className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg"><Icon name="download" size={18}/></button>
+                                    </div>
+                                    <div className="space-y-3">
+                                        <div className="bg-slate-900/50 p-3 rounded-xl">
+                                            <p className="text-[8px] text-slate-500 uppercase font-black mb-2 tracking-widest">Wochenansicht (Details)</p>
+                                            <div className="grid grid-cols-6 gap-1">
+                                                {Object.entries(summary.weekDetails).map(([day, val]) => (
+                                                    <div key={day} className="flex flex-col items-center">
+                                                        <span className="text-[7px] text-slate-500 font-bold uppercase">{day}</span>
+                                                        <span className={`text-[10px] font-black ${val > 0 ? 'text-blue-400' : 'text-slate-700'}`}>{val}h</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="mt-3 pt-2 border-t border-white/5 flex justify-between items-center">
+                                                <span className="text-[8px] text-slate-400 font-black uppercase">Woche Total</span>
+                                                <span className="text-xs font-black text-blue-400">{summary.week}h</span>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div className="bg-slate-900/50 p-3 rounded-xl flex justify-between items-center">
+                                                <p className="text-[8px] text-slate-500 uppercase font-black">Monat</p>
+                                                <p className="text-xs font-black text-emerald-400">{summary.month}h</p>
+                                            </div>
+                                            <div className="bg-slate-900/50 p-3 rounded-xl flex justify-between items-center">
+                                                <p className="text-[8px] text-slate-500 uppercase font-black">Gesamt</p>
+                                                <p className="text-xs font-black text-white">{summary.total}h</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </section>
+                    </main>
+                </div>
+            );
+
             if (view === 'dashboard') return (
                 <div className="min-h-screen bg-slate-800 pb-20 page-transition">
                     <PrintArea />
                     <nav className="p-4 sticky top-0 z-40 glass border-b border-white/10 flex justify-between items-center no-print">
                         <h2 className="text-sm font-black text-white italic uppercase tracking-widest">Admin Panel</h2>
-                        <button onClick={() => setView('login')} className="p-2 text-slate-400 hover:text-white transition-colors"><Icon name="log-out" size={18}/></button>
+                        <button onClick={() => setView('login')} className="p-2 text-slate-400"><Icon name="log-out" size={18}/></button>
                     </nav>
-                    <main className="p-4 max-w-3xl mx-auto space-y-6 no-print">
+                    <main className="p-4 max-w-3xl mx-auto space-y-6">
                         <div className="grid grid-cols-5 gap-2">
                             {[ 
                                 { label: 'Aktiv', val: stats.open, color: 'blue', filter: 'all' },
@@ -420,7 +572,7 @@
                         <div className="fixed inset-0 z-50 bg-slate-900/95 flex items-center justify-center p-4"><div className="w-full max-w-sm glass rounded-3xl p-6 space-y-4"><h3 className="text-xs font-black text-white uppercase italic">Bearbeiten</h3><div className="space-y-3"><input className="w-full p-3 rounded-xl bg-slate-800 border border-white/10 text-white text-[11px] font-bold" value={editObject.address} onChange={(e) => setEditObject({...editObject, address: e.target.value})} /></div><div className="grid grid-cols-2 gap-3"><button onClick={() => setEditObject(null)} className="py-4 text-[10px] font-black uppercase text-slate-500">Abbrechen</button><button onClick={saveManualEdit} className="bg-blue-500 py-4 rounded-xl text-[10px] font-black uppercase text-white">Speichern</button></div></div></div>
                     )}
                     {showPendenzModal && (
-                        <div className="fixed inset-0 z-50 bg-slate-900/95 flex items-center justify-center p-4 overflow-y-auto" style={{WebkitOverflowScrolling: 'touch'}}>
+                        <div className="fixed inset-0 z-50 bg-slate-900/95 flex items-center justify-center p-4 overflow-y-auto">
                             <div className="w-full max-w-sm glass rounded-3xl p-6 space-y-4 my-auto relative z-[60]">
                                 <h3 className="text-xs font-black text-white uppercase italic">Pendenz melden</h3>
                                 <textarea className="w-full p-3 rounded-xl bg-slate-800 border border-white/10 text-white text-[11px] h-24" placeholder="Mangel..." value={pendenzForm.description} onChange={(e) => setPendenzForm({...pendenzForm, description: e.target.value})} />
@@ -429,7 +581,7 @@
                                 <div className="space-y-2">
                                     <p className="text-[10px] font-black text-slate-400 uppercase">Fotos hinzufügen</p>
                                     <input type="file" multiple accept="image/*" onChange={handleFileChange} className="hidden" id="admin-file-upload-2" />
-                                    <label htmlFor="admin-file-upload-2" className="w-full p-4 border border-dashed border-white/20 rounded-xl flex items-center justify-center text-slate-400 cursor-pointer hover:bg-white/5 transition-colors">
+                                    <label htmlFor="admin-file-upload-2" className="w-full p-4 border border-dashed border-white/20 rounded-xl flex items-center justify-center text-slate-400 cursor-pointer">
                                         <Icon name="camera" size={20} className="mr-2" /> <span className="text-[10px] font-bold uppercase">Wählen</span>
                                     </label>
                                     <div className="flex gap-2 overflow-x-auto pb-2">
@@ -442,20 +594,8 @@
                                     </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3 pt-2">
-                                    <button 
-                                        type="button"
-                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowPendenzModal(null); }} 
-                                        className="py-4 text-[10px] font-black uppercase text-slate-500 touch-manipulation"
-                                    >
-                                        Abbrechen
-                                    </button>
-                                    <button 
-                                        type="button"
-                                        onClick={submitPendenz} 
-                                        className="bg-amber-500 py-4 rounded-xl text-[10px] font-black uppercase text-white shadow-lg shadow-amber-500/20 active:scale-95 transition-transform touch-manipulation"
-                                    >
-                                        Senden
-                                    </button>
+                                    <button type="button" onClick={() => setShowPendenzModal(null)} className="py-4 text-[10px] font-black uppercase text-slate-500">Abbrechen</button>
+                                    <button type="button" onClick={submitPendenz} className="bg-amber-500 py-4 rounded-xl text-[10px] font-black uppercase text-white shadow-lg shadow-amber-500/20 active:scale-95 transition-transform">Senden</button>
                                 </div>
                             </div>
                         </div>
@@ -479,16 +619,10 @@
                                     {activeMonteurs.map(name => {
                                         const count = pendenzen.filter(p => p.monteur?.toLowerCase() === name.toLowerCase() && p.status === 'open').length;
                                         return (
-                                            <button 
-                                                key={name}
-                                                onClick={() => setShowMyPendenzen(name)}
-                                                className="w-full max-w-sm py-3 px-4 rounded-[1.2rem] flex flex-col items-center justify-center gap-0.5 transition-all border-2 shadow-md badge-pulse bg-blue-500/20 border-blue-400/60 scale-[1.0]"
-                                            >
+                                            <button key={name} onClick={() => setShowMyPendenzen(name)} className="w-full max-w-sm py-3 px-4 rounded-[1.2rem] flex flex-col items-center justify-center gap-0.5 transition-all border-2 shadow-md badge-pulse bg-blue-500/20 border-blue-400/60">
                                                 <span className="text-[7px] font-black text-slate-400 uppercase tracking-[0.15em]">PENDENZ FÜR</span>
                                                 <h1 className="text-base font-black text-white uppercase tracking-tight italic">{name}</h1>
-                                                <div className="mt-1 flex items-center gap-1.5 bg-blue-500 text-white px-2 py-0.5 rounded-full text-[7px] font-black uppercase">
-                                                    {count} Pendenzen
-                                                </div>
+                                                <div className="mt-1 flex items-center gap-1.5 bg-blue-500 text-white px-2 py-0.5 rounded-full text-[7px] font-black uppercase">{count} Pendenzen</div>
                                             </button>
                                         );
                                     })}
@@ -507,53 +641,26 @@
                     <main className="p-4 space-y-3 no-print">
                         <div className="relative mb-6">
                             <Icon name="search" size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
-                            <input 
-                                type="text" 
-                                className="w-full bg-slate-900/50 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-[11px] text-white font-bold" 
-                                placeholder={t.search} 
-                                value={workerSearchTerm} 
-                                onChange={(e) => setWorkerSearchTerm(e.target.value)} 
-                            />
-                        </div>
-                        <div className="flex items-center justify-between px-2 mb-2">
-                             <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-widest italic">Verfügbare Montagen</h4>
-                             <div className="h-[1px] flex-1 bg-white/5 ml-4"></div>
+                            <input type="text" className="w-full bg-slate-900/50 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-[11px] text-white font-bold" placeholder={t.search} value={workerSearchTerm} onChange={(e) => setWorkerSearchTerm(e.target.value)} />
                         </div>
                         {filteredObjectsWorker.map(obj => (
                             <button key={obj.id} onClick={() => { setSelectedObject(obj); setView('worker_edit'); }} className="w-full bg-slate-700/60 rounded-xl border border-white/5 p-5 text-left flex justify-between items-center active:bg-slate-700 border-l-4 border-l-blue-400 shadow-lg">
-                                <div>
-                                    <h3 className="text-xs font-black text-white uppercase italic truncate max-w-[220px] mb-1">{obj.address}</h3>
-                                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{obj.customer} • {obj.houseInfo}</p>
-                                </div>
+                                <div><h3 className="text-xs font-black text-white uppercase italic truncate max-w-[220px] mb-1">{obj.address}</h3><p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{obj.customer} • {obj.houseInfo}</p></div>
                                 <Icon name="arrow-right" size={18} className="text-blue-400" />
                             </button>
                         ))}
                     </main>
                     {showMyPendenzen && (
                         <div className="fixed inset-0 z-50 bg-slate-900/98 p-6 flex flex-col page-transition overflow-y-auto no-print">
-                            <div className="flex justify-between items-center mb-6">
-                                <h3 className="text-sm font-black text-white uppercase italic">Pendenzen: {showMyPendenzen}</h3>
-                                <button onClick={() => setShowMyPendenzen(null)} className="p-2 text-slate-500"><Icon name="x" size={24}/></button>
-                            </div>
+                            <div className="flex justify-between items-center mb-6"><h3 className="text-sm font-black text-white uppercase italic">Pendenzen: {showMyPendenzen}</h3><button onClick={() => setShowMyPendenzen(null)} className="p-2 text-slate-500"><Icon name="x" size={24}/></button></div>
                             <div className="space-y-4">
                                 {pendenzen.filter(p => p.monteur?.toLowerCase() === showMyPendenzen?.toLowerCase() && p.status === 'open').map(pen => (
                                     <div key={pen.id} className="card-gradient rounded-2xl p-5 border border-white/5 space-y-3">
-                                        <div className="flex justify-between items-start">
-                                            <h4 className="text-[11px] font-black text-white uppercase italic">{pen.address}</h4>
-                                            <span className="text-[8px] font-black text-red-400 bg-red-500/10 px-2 py-1 rounded">Bis: {formatDate(pen.deadline)}</span>
-                                        </div>
+                                        <div className="flex justify-between items-start"><h4 className="text-[11px] font-black text-white uppercase italic">{pen.address}</h4><span className="text-[8px] font-black text-red-400 bg-red-500/10 px-2 py-1 rounded">Bis: {formatDate(pen.deadline)}</span></div>
                                         <p className="text-[11px] font-bold text-slate-300 leading-relaxed border-l-2 border-blue-400 pl-3">{pen.description}</p>
-                                        {pen.images?.length > 0 && (
-                                            <div className="flex gap-2 overflow-x-auto py-2">
-                                                {pen.images.map((img, idx) => (
-                                                    <img key={idx} src={img} className="w-20 h-20 object-cover rounded-lg border border-white/10 shrink-0" />
-                                                ))}
-                                            </div>
-                                        )}
+                                        {pen.images?.length > 0 && <div className="flex gap-2 overflow-x-auto py-2">{pen.images.map((img, idx) => <img key={idx} src={img} className="w-20 h-20 object-cover rounded-lg border border-white/10 shrink-0" />)}</div>}
                                         <div className="grid grid-cols-2 gap-2 pt-2">
-                                            <button onClick={() => triggerDownloadPDF(pen)} className="py-4 bg-blue-500/20 border border-blue-500/40 text-blue-400 rounded-xl font-black uppercase text-[9px] flex items-center justify-center gap-2 active:bg-blue-500/30">
-                                                <Icon name="download" size={14} /> PDF HERUNTERLADEN
-                                            </button>
+                                            <button onClick={() => triggerDownloadPDF(pen)} className="py-4 bg-blue-500/20 border border-blue-500/40 text-blue-400 rounded-xl font-black uppercase text-[9px] flex items-center justify-center gap-2">PDF</button>
                                             <button onClick={() => markPendenzDone(pen.id)} className="py-4 bg-emerald-500 text-white rounded-xl font-black uppercase text-[9px] shadow-lg shadow-emerald-500/10 active:scale-95 transition-transform">ERLEDIGT</button>
                                         </div>
                                     </div>
@@ -582,6 +689,25 @@
                             <span className="text-[10px] font-black uppercase text-white">{t.blocked}</span>
                             {workerStatusMode === 'blocked' && <textarea className="w-full bg-white/20 rounded-xl p-3 text-white text-[10px]" placeholder={t.reason} value={workerBlockReason} onChange={(e) => setWorkerBlockReason(e.target.value)} onClick={(e) => e.stopPropagation()} />}
                         </button>
+
+                        <div className="h-px bg-white/10 my-4"></div>
+
+                        <button onClick={() => setWorkerStatusMode('hours')} className={`w-full p-5 rounded-2xl border flex flex-col gap-2 ${workerStatusMode === 'hours' ? 'bg-blue-600 border-blue-400 shadow-lg' : 'bg-slate-700 border-white/5 opacity-80'}`}>
+                            <span className="text-[10px] font-black uppercase text-white">{t.hours}</span>
+                            {workerStatusMode === 'hours' && (
+                                <div className="space-y-3 pt-2" onClick={(e) => e.stopPropagation()}>
+                                    <select className="w-full bg-white/20 rounded-xl p-3 text-white text-[10px] font-bold" value={workerHoursName} onChange={(e) => setWorkerHoursName(e.target.value)}>
+                                        <option value="" className="text-slate-800">Name wählen...</option>
+                                        {monteurs.map(m => <option key={m.id} value={m.name} className="text-slate-800">{m.name}</option>)}
+                                    </select>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <input type="number" step="0.5" className="w-full bg-white/20 rounded-xl p-3 text-white font-black text-center" placeholder="Std (z.B. 8.5)" value={workerHours} onChange={(e) => setWorkerHours(e.target.value)} />
+                                        <input type="date" className="w-full bg-white/20 rounded-xl p-3 text-white text-[10px] font-bold" value={workerHoursDate} onChange={(e) => setWorkerHoursDate(e.target.value)} />
+                                    </div>
+                                </div>
+                            )}
+                        </button>
+
                         {workerStatusMode && <button onClick={submitWorkerUpdate} className="w-full py-5 bg-white text-slate-800 rounded-2xl font-black uppercase tracking-widest text-[11px] mt-6 shadow-2xl">Senden</button>}
                     </main>
                 </div>
