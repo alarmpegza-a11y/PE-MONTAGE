@@ -9,6 +9,8 @@
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Bibliothek für direkten PDF-Download hinzugefügt -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
     
     <script type="module">
@@ -60,12 +62,8 @@
             100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.6); background-color: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.5); } 
         }
         
-        @media print {
-            body * { visibility: hidden; }
-            #print-area, #print-area * { visibility: visible; }
-            #print-area { position: absolute; left: 0; top: 0; width: 100%; color: black !important; background: white !important; display: block !important; }
-            .no-print { display: none !important; }
-        }
+        /* Das Print-Areal wird für html2pdf genutzt, bleibt aber im UI unsichtbar */
+        #print-area { display: none; }
     </style>
 </head>
 <body>
@@ -260,9 +258,28 @@
                 await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'pendenzen', pId), { status: 'done', doneAt: new Date().toISOString() });
             };
 
-            const triggerPrint = (data) => {
+            // ANGEPASSTE FUNKTION FÜR DIREKTEN PDF-DOWNLOAD
+            const triggerDownloadPDF = (data) => {
                 setPrintData(data);
-                setTimeout(() => { window.print(); setPrintData(null); }, 500);
+                
+                // Kurze Verzögerung um sicherzustellen, dass React das Hidden-Div gerendert hat
+                setTimeout(() => {
+                    const element = document.getElementById('print-area-content');
+                    if (!element) return;
+
+                    const opt = {
+                        margin:       [15, 15],
+                        filename:     `Pendenz_${data.monteur.replace(/\s+/g, '_')}_${new Date().toLocaleDateString('de-DE').replace(/\./g, '-')}.pdf`,
+                        image:        { type: 'jpeg', quality: 0.98 },
+                        html2canvas:  { scale: 2, useCORS: true, letterRendering: true },
+                        jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                    };
+
+                    // Direkter Download
+                    html2pdf().set(opt).from(element).save().then(() => {
+                        setPrintData(null);
+                    });
+                }, 100);
             };
 
             const stats = useMemo(() => {
@@ -303,20 +320,24 @@
             const PrintArea = () => {
                 if (!printData) return null;
                 return (
-                    <div id="print-area" className="hidden p-8 bg-white text-black">
-                        <div className="border-b-4 border-black pb-4 mb-6"><h1 className="text-3xl font-black uppercase italic text-black">Pendenz-Report</h1></div>
-                        <div className="space-y-6">
-                            <div><h2 className="text-[10px] font-black uppercase text-slate-500 mb-1">Objekt</h2><p className="text-xl font-bold">{printData.address}</p></div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div><h2 className="text-[10px] font-black uppercase text-slate-500 mb-1">Monteur</h2><p className="text-lg font-bold">{printData.monteur}</p></div>
-                                <div><h2 className="text-[10px] font-black uppercase text-slate-500 mb-1">Frist</h2><p className="text-lg font-bold">{formatDate(printData.deadline)}</p></div>
+                    <div id="print-area" className="hidden">
+                        <div id="print-area-content" className="p-8 bg-white text-black" style={{ fontFamily: 'Inter, sans-serif' }}>
+                            <div className="border-b-4 border-black pb-4 mb-6">
+                                <h1 className="text-3xl font-black uppercase italic text-black">Pendenz-Report</h1>
                             </div>
-                            <div><h2 className="text-[10px] font-black uppercase text-slate-500 mb-1">Mangel</h2><p className="text-base font-medium border-l-2 border-black pl-4">{printData.description}</p></div>
-                            {printData.images?.length > 0 && (
-                                <div className="grid grid-cols-2 gap-2 pt-4">
-                                    {printData.images.map((img, i) => <img key={i} src={img} className="w-full h-64 object-cover border" />)}
+                            <div className="space-y-6">
+                                <div><h2 className="text-[10px] font-black uppercase text-slate-500 mb-1">Objekt</h2><p className="text-xl font-bold">{printData.address}</p></div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div><h2 className="text-[10px] font-black uppercase text-slate-500 mb-1">Monteur</h2><p className="text-lg font-bold">{printData.monteur}</p></div>
+                                    <div><h2 className="text-[10px] font-black uppercase text-slate-500 mb-1">Frist</h2><p className="text-lg font-bold">{formatDate(printData.deadline)}</p></div>
                                 </div>
-                            )}
+                                <div><h2 className="text-[10px] font-black uppercase text-slate-500 mb-1">Mangel</h2><p className="text-base font-medium border-l-2 border-black pl-4">{printData.description}</p></div>
+                                {printData.images?.length > 0 && (
+                                    <div className="grid grid-cols-2 gap-2 pt-4">
+                                        {printData.images.map((img, i) => <img key={i} src={img} className="w-full h-64 object-cover border" />)}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 );
@@ -512,8 +533,9 @@
                                         )}
 
                                         <div className="grid grid-cols-2 gap-2 pt-2">
-                                            <button onClick={() => triggerPrint(pen)} className="py-4 bg-blue-500/20 border border-blue-500/40 text-blue-400 rounded-xl font-black uppercase text-[9px] flex items-center justify-center gap-2 active:bg-blue-500/30">
-                                                <Icon name="file-text" size={14} /> PDF REPORT
+                                            {/* GEÄNDERTER PDF-DOWNLOAD BUTTON */}
+                                            <button onClick={() => triggerDownloadPDF(pen)} className="py-4 bg-blue-500/20 border border-blue-500/40 text-blue-400 rounded-xl font-black uppercase text-[9px] flex items-center justify-center gap-2 active:bg-blue-500/30">
+                                                <Icon name="download" size={14} /> PDF HERUNTERLADEN
                                             </button>
                                             <button onClick={() => markPendenzDone(pen.id)} className="py-4 bg-emerald-500 text-white rounded-xl font-black uppercase text-[9px] shadow-lg shadow-emerald-500/10 active:scale-95 transition-transform">ERLEDIGT</button>
                                         </div>
