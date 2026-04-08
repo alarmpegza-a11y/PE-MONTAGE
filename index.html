@@ -244,6 +244,41 @@
                 setEditObject(null);
             };
 
+            // NEU: Bild-Kompression für Handy-Optimierung
+            const compressImage = (file) => {
+                return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const img = new Image();
+                        img.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            let width = img.width;
+                            let height = img.height;
+                            const MAX_SIZE = 1024; // Reduzierte Größe für schnellere Übertragung auf Mobilgeräten
+
+                            if (width > height) {
+                                if (width > MAX_SIZE) {
+                                    height *= MAX_SIZE / width;
+                                    width = MAX_SIZE;
+                                }
+                            } else {
+                                if (height > MAX_SIZE) {
+                                    width *= MAX_SIZE / height;
+                                    height = MAX_SIZE;
+                                }
+                            }
+                            canvas.width = width;
+                            canvas.height = height;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, width, height);
+                            resolve(canvas.toDataURL('image/jpeg', 0.7)); // Kompression auf 70% Qualität
+                        };
+                        img.src = e.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                });
+            };
+
             const handleFileChange = async (e) => {
                 const files = Array.from(e.target.files);
                 if (!files.length) return;
@@ -251,12 +286,7 @@
                 const processed = [];
                 for (const file of files) {
                     try {
-                        const base64 = await new Promise((resolve, reject) => {
-                            const reader = new FileReader();
-                            reader.onload = (ev) => resolve(ev.target.result);
-                            reader.onerror = reject;
-                            reader.readAsDataURL(file);
-                        });
+                        const base64 = await compressImage(file);
                         processed.push(base64);
                     } catch (err) {
                         console.error("Datei-Fehler:", err);
@@ -267,7 +297,6 @@
             };
 
             const submitPendenz = async (e) => {
-                // Verhindert Standard-Formularverhalten und stoppt Propagation für Mobilgeräte
                 if (e) {
                     e.preventDefault();
                     e.stopPropagation();
@@ -277,25 +306,25 @@
                 
                 setIsSubmittingPendenz(true);
                 
-                try {
-                    const { db, addDoc, collection } = window.FirebaseSDK;
-                    const objectToLink = showPendenzModal;
-                    
-                    const payload = {
-                        objectId: objectToLink.id, 
-                        address: objectToLink.address, 
-                        description: pendenzForm.description.trim(),
-                        deadline: pendenzForm.deadline || new Date().toISOString().split('T')[0], 
-                        monteur: pendenzForm.monteur.trim(), 
-                        images: pendenzForm.images || [], 
-                        status: 'open', 
-                        createdAt: new Date().toISOString()
-                    };
-                    
-                    // Expliziter Aufruf ohne Verzögerung
-                    const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'pendenzen'), payload);
-                    
-                    if (docRef.id) {
+                // Entkoppelung für Mobilgeräte
+                requestAnimationFrame(async () => {
+                    try {
+                        const { db, addDoc, collection } = window.FirebaseSDK;
+                        const objectToLink = showPendenzModal;
+                        
+                        const payload = {
+                            objectId: objectToLink.id, 
+                            address: objectToLink.address, 
+                            description: pendenzForm.description.trim(),
+                            deadline: pendenzForm.deadline || new Date().toISOString().split('T')[0], 
+                            monteur: pendenzForm.monteur.trim(), 
+                            images: pendenzForm.images || [], 
+                            status: 'open', 
+                            createdAt: new Date().toISOString()
+                        };
+                        
+                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'pendenzen'), payload);
+                        
                         setSubmitSuccess(true);
                         setTimeout(() => {
                             setSubmitSuccess(false);
@@ -303,12 +332,11 @@
                             setShowPendenzModal(null); 
                             setIsSubmittingPendenz(false);
                         }, 1200);
+                    } catch (err) {
+                        console.error("Firestore Error:", err);
+                        setIsSubmittingPendenz(false);
                     }
-                } catch (err) {
-                    console.error("Firestore Error:", err);
-                    setIsSubmittingPendenz(false);
-                    // Fallback bei Fehler: UI entsperren
-                }
+                });
             };
 
             const markPendenzDone = async (pId) => {
