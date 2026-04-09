@@ -277,6 +277,19 @@
                 }
             };
 
+            // NEU: Funktion zum Aktualisieren der Stunden pro Tag
+            const updateHourEntry = async (logId, newVal) => {
+                if (!window.FirebaseSDK) return;
+                const { db, doc, updateDoc } = window.FirebaseSDK;
+                try {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hours', logId), {
+                        hours: parseFloat(newVal) || 0
+                    });
+                } catch (err) {
+                    console.error("Fehler beim Speichern der Stunden:", err);
+                }
+            };
+
             const compressImage = (file) => {
                 return new Promise((resolve) => {
                     const reader = new FileReader();
@@ -627,6 +640,37 @@
                                                 <p className="text-[8px] text-slate-500 uppercase font-black">Gesamt</p>
                                                 <p className="text-xs font-black text-white">{summary.total}h</p>
                                             </div>
+                                        </div>
+
+                                        {/* Geänderter Bereich: Detail Einträge mit Bearbeitungsfunktion pro Tag */}
+                                        <div className="bg-slate-900/50 p-3 rounded-xl space-y-2">
+                                            <p className="text-[8px] text-slate-500 uppercase font-black tracking-widest">Detail Einträge (Bearbeitbar)</p>
+                                            {summary.logs.sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0,10).map((log) => (
+                                                <div key={log.id} className="flex items-center justify-between gap-2 border-b border-white/5 pb-2 last:border-0">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-[8px] text-white font-bold">{formatDate(log.date)}</span>
+                                                        <span className="text-[8px] text-slate-400 truncate max-w-[120px]">{log.address}</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <input 
+                                                            type="number" 
+                                                            step="0.5" 
+                                                            defaultValue={log.hours} 
+                                                            id={`input-hours-${log.id}`}
+                                                            className="w-12 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-[10px] font-black text-white text-center focus:outline-none focus:border-blue-400"
+                                                        />
+                                                        <button 
+                                                            onClick={() => {
+                                                                const newVal = document.getElementById(`input-hours-${log.id}`).value;
+                                                                updateHourEntry(log.id, newVal);
+                                                            }}
+                                                            className="p-1 text-emerald-400 hover:bg-emerald-400/10 rounded transition-colors"
+                                                        >
+                                                            <Icon name="save" size={14} />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
                                 </div>
