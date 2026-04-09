@@ -154,8 +154,6 @@
             const [showMyPendenzen, setShowMyPendenzen] = useState(null);
             const [printData, setPrintData] = useState(null);
             const [hourPrintData, setHourPrintData] = useState(null);
-
-            // NEU: State für Kalenderwochen-Auswahl
             const [selectedDate, setSelectedDate] = useState(new Date());
 
             const appId = 'montage-pe-a5f79';
@@ -277,7 +275,7 @@
                             const canvas = document.createElement('canvas');
                             let width = img.width;
                             let height = img.height;
-                            const MAX_WIDTH = 1200;
+                            const MAX_WIDTH = 1000; // Reduziert für mobile Performance
                             if (width > MAX_WIDTH) {
                                 height *= MAX_WIDTH / width;
                                 width = MAX_WIDTH;
@@ -286,7 +284,7 @@
                             canvas.height = height;
                             const ctx = canvas.getContext('2d');
                             ctx.drawImage(img, 0, 0, width, height);
-                            resolve(canvas.toDataURL('image/jpeg', 0.8));
+                            resolve(canvas.toDataURL('image/jpeg', 0.6)); // Reduzierte Qualität für mobile Bandbreite
                         };
                         img.src = e.target.result;
                     };
@@ -309,14 +307,15 @@
 
             const submitPendenz = async (e) => {
                 if (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
+                    if (typeof e.preventDefault === 'function') e.preventDefault();
+                    if (typeof e.stopPropagation === 'function') e.stopPropagation();
                 }
 
                 if (!pendenzForm.description || !pendenzForm.monteur || !showPendenzModal || isSubmittingPendenz) return;
                 
                 setIsSubmittingPendenz(true);
 
+                // Kurze Verzögerung für mobile UI Feedback
                 setTimeout(async () => {
                     try {
                         const { db, addDoc, collection } = window.FirebaseSDK;
@@ -346,7 +345,7 @@
                         console.error("Firestore Error Mobile:", err);
                         setIsSubmittingPendenz(false);
                     }
-                }, 50);
+                }, 100);
             };
 
             const markPendenzDone = async (pId) => {
@@ -558,7 +557,6 @@
                         <button onClick={() => setView('login')} className="p-2 text-slate-400"><Icon name="log-out" size={18}/></button>
                     </nav>
                     <main className="p-4 max-w-3xl mx-auto space-y-6">
-                        {/* KW-WECHSEL STEUERUNG */}
                         <section className="card-gradient p-4 rounded-2xl flex justify-between items-center">
                             <button onClick={() => changeWeek(-1)} className="p-3 bg-slate-900/50 rounded-xl text-blue-400 active:scale-90 transition-transform">
                                 <Icon name="chevron-left" size={20} />
@@ -571,7 +569,6 @@
                                 <Icon name="chevron-right" size={20} />
                             </button>
                         </section>
-
                         <section className="card-gradient p-6 rounded-2xl space-y-4">
                             <h3 className="text-xs font-black text-blue-400 uppercase tracking-widest">Monteure verwalten</h3>
                             <div className="flex gap-2">
@@ -698,10 +695,10 @@
                                         <p className="text-xs font-black text-white uppercase tracking-widest italic">Gespeichert!</p>
                                     </div>
                                 ) : (
-                                    <form onSubmit={submitPendenz} className="space-y-4">
+                                    <div className="space-y-4">
                                         <h3 className="text-xs font-black text-white uppercase italic">Pendenz melden</h3>
-                                        <textarea className="w-full p-3 rounded-xl bg-slate-800 border border-white/10 text-white text-[11px] h-24" placeholder="Mangel..." value={pendenzForm.description} onChange={(e) => setPendenzForm({...pendenzForm, description: e.target.value})} required />
-                                        <input type="text" className="w-full p-3 rounded-xl bg-slate-800 border border-white/10 text-white text-[11px]" placeholder="Monteur Name (z.B. Spyro)..." value={pendenzForm.monteur} onChange={(e) => setPendenzForm({...pendenzForm, monteur: e.target.value})} required />
+                                        <textarea className="w-full p-3 rounded-xl bg-slate-800 border border-white/10 text-white text-[11px] h-24" placeholder="Mangel..." value={pendenzForm.description} onChange={(e) => setPendenzForm({...pendenzForm, description: e.target.value})} />
+                                        <input type="text" className="w-full p-3 rounded-xl bg-slate-800 border border-white/10 text-white text-[11px]" placeholder="Monteur Name..." value={pendenzForm.monteur} onChange={(e) => setPendenzForm({...pendenzForm, monteur: e.target.value})} />
                                         <input type="date" className="w-full p-3 rounded-xl bg-slate-800 border border-white/10 text-white text-[11px]" value={pendenzForm.deadline} onChange={(e) => setPendenzForm({...pendenzForm, deadline: e.target.value})} />
                                         <div className="space-y-2">
                                             <p className="text-[10px] font-black text-slate-400 uppercase">Fotos hinzufügen</p>
@@ -721,14 +718,14 @@
                                         <div className="grid grid-cols-2 gap-3 pt-2">
                                             <button type="button" onClick={() => setShowPendenzModal(null)} className="py-4 text-[10px] font-black uppercase text-slate-500">Abbrechen</button>
                                             <button 
-                                                type="submit" 
+                                                onClick={submitPendenz} 
                                                 disabled={isSubmittingPendenz || !pendenzForm.description || !pendenzForm.monteur} 
                                                 className={`bg-amber-500 py-4 rounded-xl text-[10px] font-black uppercase text-white shadow-lg active:scale-95 transition-all ${(isSubmittingPendenz || !pendenzForm.description || !pendenzForm.monteur) ? 'opacity-50 grayscale' : 'opacity-100'}`}
                                             >
                                                 {isSubmittingPendenz ? 'Sende...' : 'Senden'}
                                             </button>
                                         </div>
-                                    </form>
+                                    </div>
                                 )}
                             </div>
                         </div>
