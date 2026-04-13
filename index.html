@@ -221,6 +221,7 @@
                 for (let line of lines) {
                     const trimmed = line.trim();
                     if (!trimmed) continue;
+                    
                     const dayMatch = trimmed.match(dayRegex);
                     if (dayMatch) {
                         const [_, dName, dStr] = dayMatch;
@@ -228,26 +229,35 @@
                         currentDay = new Date(y, m - 1, d);
                         continue;
                     }
+
                     if (trimmed.toUpperCase().startsWith("LIEFERUNG")) {
                         const content = trimmed.replace(/^LIEFERUNG\s*/i, "").trim();
-                        const addressRegex = /([A-ZÄÖÜa-zäöüß\s\.\-]+\s\d*[a-z]?,\s\d{4,5}\s[A-ZÄÖÜa-zäöüß\s\.\-]+)/;
+                        // Verbesserter Regex: Sucht nach Straße/Nr + Komma + PLZ + Ort
+                        const addressRegex = /([A-ZÄÖÜa-zäöüß\s\.\-]+\s\d*[a-z]?),\s(\d{4,5})\s([A-ZÄÖÜa-zäöüß\s\.\-]+)/;
                         const addressMatch = content.match(addressRegex);
-                        let address = addressMatch ? addressMatch[0].trim() : "Unbekannte Adresse";
-                        const parts = content.split(address);
-                        let customer = parts[0]?.trim().replace(/,$/, '') || "Kunde";
-                        let remainder = parts[1]?.trim() || "";
-                        const eleMatch = remainder.match(/(\d+)\s?ELE/i);
-                        const houseMatch = remainder.match(/(Haus\s?\d+)/i);
-                        const objId = `obj-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-                        newObjects.push({
-                            id: objId, name: address, customer, address,
-                            houseInfo: houseMatch ? houseMatch[0] : "Gesamtmontage",
-                            target: eleMatch ? parseInt(eleMatch[1]) : 1,
-                            current: 0, lastRemaining: null, blockReason: null, 
-                            deliveryDate: currentDay.toISOString(), status: 'active', history: []
-                        });
+                        
+                        // Nur wenn eine Adresse gefunden wurde, wird das Objekt erstellt
+                        if (addressMatch) {
+                            const address = addressMatch[0].trim();
+                            const parts = content.split(address);
+                            let customer = parts[0]?.trim().replace(/,$/, '') || "Unbekannter Kunde";
+                            let remainder = parts[1]?.trim() || "";
+                            
+                            const eleMatch = remainder.match(/(\d+)\s?ELE/i);
+                            const houseMatch = remainder.match(/(Haus\s?\d+)/i);
+                            const objId = `obj-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+                            
+                            newObjects.push({
+                                id: objId, name: address, customer, address,
+                                houseInfo: houseMatch ? houseMatch[0] : "Gesamtmontage",
+                                target: eleMatch ? parseInt(eleMatch[1]) : 1,
+                                current: 0, lastRemaining: null, blockReason: null, 
+                                deliveryDate: currentDay.toISOString(), status: 'active', history: []
+                            });
+                        }
                     }
                 }
+                
                 if (newObjects.length > 0) {
                     const { db, doc, setDoc } = window.FirebaseSDK;
                     for (const obj of newObjects) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), obj);
