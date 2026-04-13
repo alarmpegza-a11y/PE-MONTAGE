@@ -263,7 +263,7 @@
 
             const submitWorkerUpdate = async () => {
                 const now = new Date().toISOString();
-                const { db, doc, updateDoc, addDoc, collection } = window.FirebaseSDK;
+                const { db, doc, updateDoc, deleteDoc, addDoc, collection } = window.FirebaseSDK;
                 const obj = selectedObject;
                 
                 if (workerStatusMode === 'hours') {
@@ -272,14 +272,18 @@
                         objectId: obj.id, address: obj.address, monteurName: workerHoursName, hours: parseFloat(workerHours), date: workerHoursDate, createdAt: now
                     });
                 } else {
-                    let updates = { history: [{ date: now, mode: workerStatusMode, detail: workerStatusMode === 'blocked' ? workerBlockReason : workerRemaining }, ...(obj.history || [])] };
-                    if (workerStatusMode === 'finished') updates = { ...updates, current: obj.target, status: 'finished', finishedAt: now, lastRemaining: 0, blockReason: null };
-                    else if (workerStatusMode === 'blocked') updates = { ...updates, status: 'blocked', blockReason: workerBlockReason };
-                    else if (workerStatusMode === 'partial') {
-                        const open = parseInt(workerRemaining) || 0;
-                        updates = { ...updates, current: Math.max(0, obj.target - open), status: 'active', lastRemaining: open, blockReason: null };
+                    if (workerStatusMode === 'finished') {
+                        // SOFORTIGES LÖSCHEN BEI "FERTIG MONTIERT"
+                        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id));
+                    } else {
+                        let updates = { history: [{ date: now, mode: workerStatusMode, detail: workerStatusMode === 'blocked' ? workerBlockReason : workerRemaining }, ...(obj.history || [])] };
+                        if (workerStatusMode === 'blocked') updates = { ...updates, status: 'blocked', blockReason: workerBlockReason };
+                        else if (workerStatusMode === 'partial') {
+                            const open = parseInt(workerRemaining) || 0;
+                            updates = { ...updates, current: Math.max(0, obj.target - open), status: 'active', lastRemaining: open, blockReason: null };
+                        }
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), updates);
                     }
-                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), updates);
                 }
                 setWorkerStatusMode(''); setWorkerRemaining(''); setWorkerBlockReason(''); setWorkerHours(''); setView('worker_list');
             };
@@ -287,12 +291,9 @@
             const saveManualEdit = async () => {
                 if (!editObject) return;
                 const { db, doc, updateDoc } = window.FirebaseSDK;
-                // Wir speichern das Objekt mit den neuen Daten ab. 
-                // Da die Liste filteredObjectsAdmin über useMemo an objects gebunden ist, 
-                // wird sich die Ansicht automatisch aktualisieren, sobald das Firestore-Update zurückkommt.
                 await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', editObject.id), {
                     address: editObject.address, customer: editObject.customer, houseInfo: editObject.houseInfo, target: parseInt(editObject.target) || 0,
-                    name: editObject.address // Ebenfalls name synchronisieren für den Filter
+                    name: editObject.address
                 });
                 setEditObject(null);
             };
