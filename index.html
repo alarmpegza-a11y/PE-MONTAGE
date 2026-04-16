@@ -273,7 +273,6 @@
                     });
                 } else {
                     if (workerStatusMode === 'finished') {
-                        // SOFORTIGES LÖSCHEN BEI "FERTIG MONTIERT"
                         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id));
                     } else {
                         let updates = { history: [{ date: now, mode: workerStatusMode, detail: workerStatusMode === 'blocked' ? workerBlockReason : workerRemaining }, ...(obj.history || [])] };
@@ -554,8 +553,9 @@
                 if (adminFilter === 'blocked') list = list.filter(o => o.status === 'blocked');
                 else if (adminFilter === 'partial') list = list.filter(o => o.lastRemaining > 0 && o.status !== 'finished' && o.status !== 'blocked');
                 else if (adminFilter === 'pendenzen') {
-                    const idsWithPendenzen = new Set(pendenzen.filter(p => p.status === 'open').map(p => p.objectId));
-                    list = list.filter(o => idsWithPendenzen.has(o.id));
+                    // Filtert die Liste der Objekte, so dass nur solche mit offenen Pendenzen angezeigt werden
+                    const idsWithOpenPendenzen = new Set(pendenzen.filter(p => p.status === 'open').map(p => p.objectId));
+                    list = list.filter(o => idsWithOpenPendenzen.has(o.id));
                 } else if (adminFilter === 'unknown_address') {
                     list = list.filter(o => o.address?.includes("Unbekannte Adresse") || o.name?.includes("Unbekannte Adresse"));
                 }
