@@ -104,10 +104,14 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef, memo } = React;
 
+        // ── ÄNDERUNG 1: Bulgarisch, Tschechisch und Griechisch hinzugefügt ──
         const translations = {
             de: { partial: "Offen zum montieren", finished: "Fertig montiert", blocked: "Blockiert / Problem", hours: "Stunden erfassen", openItems: "Offen?", reason: "Grund...", submit: "Senden", cancel: "Abbrechen", placeholderNum: "Zahl...", back: "Zurück", search: "Suchen..." },
             sq: { partial: "Hapur për montim", finished: "Përfunduar", blocked: "Bllokuar", hours: "Regjistro orët", openItems: "Hapur?", reason: "Arsyeja...", submit: "Dërgo", cancel: "Anulo", placeholderNum: "Numri...", back: "Mbrapa", search: "Kërko..." },
-            it: { partial: "Aperto per il montaggio", finished: "Finito", blocked: "Bloccato", hours: "Registra ore", openItems: "Aperti?", reason: "Motivo...", submit: "Invia", cancel: "Indietro", placeholderNum: "Num...", back: "Indietro", search: "Cerca..." }
+            it: { partial: "Aperto per il montaggio", finished: "Finito", blocked: "Bloccato", hours: "Registra ore", openItems: "Aperti?", reason: "Motivo...", submit: "Invia", cancel: "Indietro", placeholderNum: "Num...", back: "Indietro", search: "Cerca..." },
+            bg: { partial: "Отворено за монтаж", finished: "Завършено", blocked: "Блокирано", hours: "Запис часове", openItems: "Отворено?", reason: "Причина...", submit: "Изпрати", cancel: "Отказ", placeholderNum: "Число...", back: "Назад", search: "Търси..." },
+            cs: { partial: "Otevřeno pro montáž", finished: "Hotovo", blocked: "Blokováno", hours: "Zaznamenat hodiny", openItems: "Otevřeno?", reason: "Důvod...", submit: "Odeslat", cancel: "Zrušit", placeholderNum: "Číslo...", back: "Zpět", search: "Hledat..." },
+            el: { partial: "Ανοιχτό για μοντάρισμα", finished: "Ολοκληρώθηκε", blocked: "Μπλοκαρισμένο", hours: "Καταγραφή ωρών", openItems: "Ανοιχτό;", reason: "Αιτία...", submit: "Αποστολή", cancel: "Ακύρωση", placeholderNum: "Αριθμός...", back: "Πίσω", search: "Αναζήτηση..." }
         };
 
         const Icon = memo(({ name, size = 24, className = "" }) => {
@@ -276,8 +280,10 @@
                         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id));
                     } else {
                         let updates = { history: [{ date: now, mode: workerStatusMode, detail: workerStatusMode === 'blocked' ? workerBlockReason : workerRemaining }, ...(obj.history || [])] };
-                        if (workerStatusMode === 'blocked') updates = { ...updates, status: 'blocked', blockReason: workerBlockReason };
-                        else if (workerStatusMode === 'partial') {
+                        if (workerStatusMode === 'blocked') {
+                            // ── ÄNDERUNG 2: lastRemaining beim Blockieren beibehalten ──
+                            updates = { ...updates, status: 'blocked', blockReason: workerBlockReason, lastRemaining: obj.lastRemaining ?? null };
+                        } else if (workerStatusMode === 'partial') {
                             const open = parseInt(workerRemaining) || 0;
                             updates = { ...updates, current: Math.max(0, obj.target - open), status: 'active', lastRemaining: open, blockReason: null };
                         }
@@ -305,6 +311,18 @@
                     await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', objId));
                 } catch (err) {
                     console.error("Fehler beim Löschen des Objekts:", err);
+                }
+            };
+
+            const unblockObject = async (e, obj) => {
+                e.stopPropagation();
+                const { db, doc, updateDoc } = window.FirebaseSDK;
+                try {
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), {
+                        status: 'active', blockReason: null
+                    });
+                } catch (err) {
+                    console.error("Fehler beim Entsperren:", err);
                 }
             };
 
@@ -487,7 +505,7 @@
                 objects.forEach(obj => {
                     total += obj.target; done += obj.current;
                     if (obj.status === 'blocked') blocked++;
-                    if (obj.lastRemaining > 0 && obj.status !== 'finished' && obj.status !== 'blocked') partial++;
+                    if (obj.lastRemaining > 0 && obj.status !== 'finished') partial++;
                     if (obj.address?.includes("Unbekannte Adresse") || obj.name?.includes("Unbekannte Adresse")) unknown++;
                 });
                 return { 
@@ -551,9 +569,9 @@
             const filteredObjectsAdmin = useMemo(() => {
                 let list = objects;
                 if (adminFilter === 'blocked') list = list.filter(o => o.status === 'blocked');
-                else if (adminFilter === 'partial') list = list.filter(o => o.lastRemaining > 0 && o.status !== 'finished' && o.status !== 'blocked');
+                // ── ÄNDERUNG 3: Teilweise-Filter zeigt auch blockierte Objekte mit offenen Elementen ──
+                else if (adminFilter === 'partial') list = list.filter(o => o.lastRemaining > 0 && o.status !== 'finished');
                 else if (adminFilter === 'pendenzen') {
-                    // Filtert die Liste der Objekte, so dass nur solche mit offenen Pendenzen angezeigt werden
                     const idsWithOpenPendenzen = new Set(pendenzen.filter(p => p.status === 'open').map(p => p.objectId));
                     list = list.filter(o => idsWithOpenPendenzen.has(o.id));
                 } else if (adminFilter === 'unknown_address') {
@@ -897,14 +915,21 @@
                                     <p className="text-[10px] font-bold text-blue-300 mb-2 uppercase">{obj.customer} | {obj.houseInfo}</p>
                                     {obj.status === 'blocked' && obj.blockReason && (
                                         <div className="bg-red-500/10 border border-red-500/30 p-3 rounded-lg mb-3">
-                                            <p className="text-[8px] font-black text-red-400 uppercase tracking-widest mb-1">Blockier-Grund / Problem:</p>
-                                            <p className="text-[11px] font-bold text-red-200">{obj.blockReason}</p>
+                                            <div className="flex justify-between items-start gap-2">
+                                                <div>
+                                                    <p className="text-[8px] font-black text-red-400 uppercase tracking-widest mb-1">Blockier-Grund / Problem:</p>
+                                                    <p className="text-[11px] font-bold text-red-200">{obj.blockReason}</p>
+                                                </div>
+                                                <button onClick={(e) => unblockObject(e, obj)} className="shrink-0 px-2 py-1.5 bg-emerald-500/20 border border-emerald-500/40 rounded-lg text-emerald-400 text-[8px] font-black uppercase whitespace-nowrap active:scale-95 transition-transform">
+                                                    ✓ Freigeben
+                                                </button>
+                                            </div>
                                         </div>
                                     )}
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2">
                                             <span className="text-[8px] text-slate-400 font-bold uppercase">{formatDate(obj.deliveryDate)}</span>
-                                            {obj.lastRemaining > 0 && obj.status !== 'finished' && obj.status !== 'blocked' && (
+                                            {obj.lastRemaining > 0 && obj.status !== 'finished' && (
                                                 <span className="text-[9px] font-black text-orange-400 uppercase italic">Offen: {obj.lastRemaining} ELE</span>
                                             )}
                                         </div>
@@ -1001,8 +1026,9 @@
                                 </div>
                             )}
                         </div>
-                        <div className="flex gap-2 justify-center mt-4">
-                            {['de', 'sq', 'it'].map(l => <button key={l} onClick={() => setLang(l)} className={`px-2.5 py-1 rounded-lg text-[8px] font-bold border transition-all ${lang === l ? 'bg-blue-500 border-blue-400 text-white' : 'bg-slate-700 border-white/5 text-slate-400'}`}>{l.toUpperCase()}</button>)}
+                        {/* ── ÄNDERUNG 1: Sprachauswahl mit BG, CS, EL erweitert ── */}
+                        <div className="flex gap-2 justify-center mt-4 flex-wrap">
+                            {['de', 'sq', 'it', 'bg', 'cs', 'el'].map(l => <button key={l} onClick={() => setLang(l)} className={`px-2.5 py-1 rounded-lg text-[8px] font-bold border transition-all ${lang === l ? 'bg-blue-500 border-blue-400 text-white' : 'bg-slate-700 border-white/5 text-slate-400'}`}>{l.toUpperCase()}</button>)}
                         </div>
                     </header>
                     <main className="p-4 space-y-3 no-print">
