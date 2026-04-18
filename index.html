@@ -180,6 +180,7 @@
             const [printData, setPrintData] = useState(null);
             const [hourPrintData, setHourPrintData] = useState(null);
             const [selectedDate, setSelectedDate] = useState(new Date());
+            const [importResult, setImportResult] = useState(null);
 
             const appId = 'montage-pe-a5f79';
             const t = translations[lang];
@@ -217,52 +218,61 @@
             const processTextImport = async () => {
                 if (!importText.trim()) return;
                 setIsImporting(true);
+
                 const lines = importText.split(/\r?\n/);
-                let currentDay = new Date();
                 const newObjects = [];
-                const dayRegex = /(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\s+(\d{2}\.\d{2}\.\d{4})/i;
 
                 for (let line of lines) {
                     const trimmed = line.trim();
                     if (!trimmed) continue;
-                    
-                    const dayMatch = trimmed.match(dayRegex);
-                    if (dayMatch) {
-                        const [_, dName, dStr] = dayMatch;
-                        const [d, m, y] = dStr.split('.');
-                        currentDay = new Date(y, m - 1, d);
-                        continue;
-                    }
 
-                    if (trimmed.toUpperCase().startsWith("LIEFERUNG")) {
-                        const content = trimmed.replace(/^LIEFERUNG\s*/i, "").trim();
-                        const addressRegex = /([A-ZÄÖÜa-zäöüß\s\.\-]+\s\d*[a-z]?),\s(\d{4,5})\s([A-ZÄÖÜa-zäöüß\s\.\-]+)/;
-                        const addressMatch = content.match(addressRegex);
-                        
-                        const address = addressMatch ? addressMatch[0].trim() : "Unbekannte Adresse";
-                        const parts = addressMatch ? content.split(address) : [content, ""];
-                        let customer = parts[0]?.trim().replace(/,$/, '') || "Unbekannter Kunde";
-                        let remainder = parts[1]?.trim() || "";
-                        
-                        const eleMatch = remainder.match(/(\d+)\s?ELE/i);
-                        const houseMatch = remainder.match(/(Haus\s?\d+)/i);
-                        const objId = `obj-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-                        
-                        newObjects.push({
-                            id: objId, name: address, customer, address,
-                            houseInfo: houseMatch ? houseMatch[0] : "Gesamtmontage",
-                            target: eleMatch ? parseInt(eleMatch[1]) : 1,
-                            current: 0, lastRemaining: null, blockReason: null, 
-                            deliveryDate: currentDay.toISOString(), status: 'active', history: []
-                        });
-                    }
+                    // Schrägstrich-Format: Kunde / Adresse / Memo
+                    const parts = trimmed.split('/').map(p => p.trim());
+                    if (parts.length < 2) continue; // Keine gültige Zeile
+
+                    const customer = parts[0] || 'Unbekannter Kunde';
+                    const address  = parts[1] || 'Unbekannte Adresse';
+                    const memo     = parts[2] || '';
+
+                    // ELE-Anzahl aus Memo extrahieren (z.B. "47 ELE", "6ELE")
+                    const eleMatch = memo.match(/(\d+)\s*ELE/i);
+                    const target = eleMatch ? parseInt(eleMatch[1]) : 1;
+
+                    // Hausinfo: Memo ohne ELE-Teil und GIS
+                    const houseInfo = memo
+                        .replace(/\d+\s*ELE/gi, '')
+                        .replace(/\bGIS\b/gi, '')
+                        .replace(/[-–]\s*$/, '')
+                        .trim() || 'Gesamtmontage';
+
+                    const objId = `obj-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+                    newObjects.push({
+                        id: objId,
+                        name: address,
+                        customer,
+                        address,
+                        houseInfo,
+                        target,
+                        current: 0,
+                        lastRemaining: null,
+                        blockReason: null,
+                        deliveryDate: new Date().toISOString(),
+                        status: 'active',
+                        history: []
+                    });
                 }
-                
+
                 if (newObjects.length > 0) {
                     const { db, doc, setDoc } = window.FirebaseSDK;
-                    for (const obj of newObjects) await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), obj);
+                    for (const obj of newObjects) {
+                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), obj);
+                    }
                 }
-                setIsImporting(false); setImportText(''); setShowImportModal(false);
+
+                setIsImporting(false);
+                setImportText('');
+                setShowImportModal(false);
+                setImportResult(newObjects.length);
             };
 
             const submitWorkerUpdate = async () => {
@@ -993,7 +1003,28 @@
                         </div>
                     )}
                     {showImportModal && (
-                        <div className="fixed inset-0 z-50 bg-slate-900/98 p-6 flex flex-col"><textarea className="flex-1 w-full bg-slate-800 border border-white/10 p-4 rounded-xl text-[11px] text-white" placeholder="Dispo-Text hierher..." value={importText} onChange={(e) => setImportText(e.target.value)} /><div className="grid grid-cols-2 gap-4 mt-6"><button onClick={() => setShowImportModal(false)} className="py-4 text-slate-500 font-black uppercase">Abbrechen</button><button onClick={processTextImport} className="bg-blue-500 text-white py-4 rounded-xl font-black">Import</button></div></div>
+                        <div className="fixed inset-0 z-50 bg-slate-900/98 p-6 flex flex-col">
+                            <textarea className="flex-1 w-full bg-slate-800 border border-white/10 p-4 rounded-xl text-[11px] text-white" placeholder="Dispo-Text hierher..." value={importText} onChange={(e) => setImportText(e.target.value)} />
+                            <div className="grid grid-cols-2 gap-4 mt-6">
+                                <button onClick={() => setShowImportModal(false)} className="py-4 text-slate-500 font-black uppercase">Abbrechen</button>
+                                <button onClick={processTextImport} disabled={isImporting} className="bg-blue-500 text-white py-4 rounded-xl font-black">{isImporting ? 'Importiere...' : 'Import'}</button>
+                            </div>
+                        </div>
+                    )}
+                    {importResult !== null && (
+                        <div className="fixed inset-0 z-50 bg-slate-900/95 flex items-center justify-center p-6">
+                            <div className="glass rounded-3xl p-8 w-full max-w-xs flex flex-col items-center gap-5">
+                                <div className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center shadow-lg">
+                                    <Icon name="check" size={32} className="text-white" />
+                                </div>
+                                <div className="text-center">
+                                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Import abgeschlossen</p>
+                                    <p className="text-4xl font-black text-white italic">{importResult}</p>
+                                    <p className="text-[11px] font-black text-emerald-400 uppercase tracking-widest mt-1">Aufträge erfasst</p>
+                                </div>
+                                <button onClick={() => setImportResult(null)} className="w-full bg-blue-500 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest">OK</button>
+                            </div>
+                        </div>
                     )}
                 </div>
             );
