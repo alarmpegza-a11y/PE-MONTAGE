@@ -96,15 +96,35 @@
             padding: 10mm;
             box-sizing: border-box;
         }
+
+        .cal-col { border-right: 1px solid #e2e8f0; min-height: 120px; padding: 4px; display: flex; flex-direction: column; gap: 4px; }
+        .cal-col:last-child { border-right: none; }
+        .cal-card-item { border-radius: 4px; padding: 6px 7px; border-left: 2.5px solid; position: relative; font-size: 11px; }
+        .green-dot { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: #10b981; }
+        @keyframes gd { 0%,100%{box-shadow:0 0 0 0 rgba(16,185,129,0.7);} 50%{box-shadow:0 0 6px 3px rgba(16,185,129,0.3);} }
+        .green-dot { animation: gd 2s infinite; }
+
+        #cal-print-area, #cal-pdf-print-area { position: absolute; left: -9999px; top: 0; width: 420mm; background: white; }
+
+        /* Delete mode highlight */
+        .delete-mode-card { cursor: pointer !important; }
+        .delete-mode-card:hover { opacity: 0.7 !important; outline: 2px solid #ef4444; }
+        
+        /* Copy mode highlight */
+        .copy-mode-card { cursor: copy !important; }
+        .copy-mode-card:hover { opacity: 0.8 !important; outline: 2px solid #f59e0b; }
+        
+        /* Paste target day */
+        .paste-target-col { background: rgba(245, 158, 11, 0.08) !important; }
+        .paste-target-col:hover { background: rgba(245, 158, 11, 0.18) !important; cursor: copy; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo, useRef, memo } = React;
+        const { useState, useEffect, useMemo, useRef, memo, useCallback } = React;
 
-        // ── ÄNDERUNG 1: Bulgarisch, Tschechisch und Griechisch hinzugefügt ──
         const translations = {
             de: { partial: "Offen zum montieren", finished: "Fertig montiert", blocked: "Blockiert / Problem", hours: "Stunden erfassen", openItems: "Offen?", reason: "Grund...", submit: "Senden", cancel: "Abbrechen", placeholderNum: "Zahl...", back: "Zurück", search: "Suchen..." },
             sq: { partial: "Hapur për montim", finished: "Përfunduar", blocked: "Bllokuar", hours: "Regjistro orët", openItems: "Hapur?", reason: "Arsyeja...", submit: "Dërgo", cancel: "Anulo", placeholderNum: "Numri...", back: "Mbrapa", search: "Kërko..." },
@@ -138,14 +158,590 @@
             d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
             d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
             const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-            const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
-            return weekNo;
+            return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
         };
+
+        // FIX 1: Corrected getCalWeekDays — uses local date math to avoid timezone shifts
+        const getCalWeekDays = (base) => {
+            const d = new Date(base);
+            const day = d.getDay(); // 0=Sun,1=Mon,...6=Sat
+            // Get Monday of this week
+            const diffToMon = (day === 0) ? -6 : 1 - day;
+            const mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() + diffToMon);
+            return Array.from({length: 6}, (_, i) => {
+                return new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + i);
+            });
+        };
+
+        // Helper: get local date string YYYY-MM-DD without UTC shift
+        const toLocalDateStr = (dateObj) => {
+            const y = dateObj.getFullYear();
+            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const d = String(dateObj.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        };
+
+        // Card color palettes for calendar
+        const CARD_COLORS = ['#cfe2ff','#d1e7dd','#fff3cd','#f8d7da','#e2d9f3','#d0f4de','#fce4ec','#e8f5e9','#fff8e1','#e3f2fd','#f3e5f5','#e0f7fa'];
+        const CARD_BORDER = ['#0d6efd','#198754','#ffc107','#dc3545','#6f42c1','#20c997','#e91e63','#4caf50','#ff9800','#2196f3','#9c27b0','#00bcd4'];
+        const CARD_TEXT  = ['#052c65','#0a3622','#664d03','#58151c','#2c1654','#0a3622','#560a21','#1b5e20','#4d3700','#0d2b6e','#3b0764','#003d47'];
 
         const ADMIN_PIN = "8852";
         const WORKER_PIN = "8623";
         const HOURS_PIN = "8888";
 
+        // ─────────────────────────────────────────────────────────────
+        // CALENDAR VIEW
+        // ─────────────────────────────────────────────────────────────
+        function CalendarView({ onBack, calEntries, setCalEntries, appId }) {
+            const [calWeek, setCalWeek] = useState(new Date());
+            const [editCalEntry, setEditCalEntry] = useState(null);
+            const [showCalImport, setShowCalImport] = useState(false);
+            const [calImportText, setCalImportText] = useState('');
+            const [calImportResult, setCalImportResult] = useState(null);
+            const [showCalPdfModal, setShowCalPdfModal] = useState(null);
+            
+            // FIX 5: Delete mode
+            const [deleteMode, setDeleteMode] = useState(false);
+            
+            // FIX 6: Copy/paste mode
+            const [copyEntry, setCopyEntry] = useState(null); // entry being copied
+            const [pasteTargetDay, setPasteTargetDay] = useState(null); // day string for paste target
+
+            const days = getCalWeekDays(calWeek);
+            const DAY_NAMES = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+
+            // FIX 1: Use local date string for matching
+            const entriesForDay = useCallback((dayStr) => {
+                return calEntries.filter(e => {
+                    if (!e.deliveryDate) return false;
+                    // Parse stored date as local date string
+                    const stored = e.deliveryDate;
+                    // stored may be ISO like "2026-04-24T00:00:00.000Z" or "2026-04-24"
+                    // Extract just YYYY-MM-DD portion and compare to local date
+                    const storedDatePart = stored.substring(0, 10);
+                    return storedDatePart === dayStr;
+                });
+            }, [calEntries]);
+
+            const colorIndex = useMemo(() => {
+                const map = {};
+                calEntries.forEach((e,i) => { map[e.id] = i % CARD_COLORS.length; });
+                return map;
+            }, [calEntries]);
+
+            const deleteCalEntry = async (id) => {
+                const { db, doc, deleteDoc } = window.FirebaseSDK;
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calentries', id));
+            };
+
+            const compressCalImage = (file) => new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let w = img.width, h = img.height;
+                        if (w > 1200) { h *= 1200/w; w = 1200; }
+                        canvas.width = w; canvas.height = h;
+                        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                        resolve(canvas.toDataURL('image/jpeg', 0.7));
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+
+            const saveCalEntry = async (entry) => {
+                const { db, doc, updateDoc } = window.FirebaseSDK;
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calentries', entry.id), {
+                    entryType: entry.entryType || 'LIEFERUNG',
+                    customer: entry.customer,
+                    address: entry.address,
+                    memo: entry.memo,
+                    auftragsNr: entry.auftragsNr,
+                    target: parseInt(entry.target) || 0,
+                    deliveryDate: entry.deliveryDate,
+                    image: entry.image || null,
+                });
+                setEditCalEntry(null);
+            };
+
+            const saveNewCalEntry = async (entry) => {
+                const { db, doc, setDoc } = window.FirebaseSDK;
+                const id = `cal-${crypto.randomUUID()}`;
+                const payload = { ...entry, id, createdAt: new Date().toISOString() };
+                delete payload.isNew;
+                if (!payload.entryType) payload.entryType = 'LIEFERUNG';
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calentries', id), payload);
+                setEditCalEntry(null);
+            };
+
+            // FIX 3: Import always uses current calendar week
+            const processCalImport = async () => {
+                if (!calImportText.trim()) return;
+                const lines = calImportText.split(/\r?\n/);
+                let currentDay = null;
+                const newEntries = [];
+                const dayRegex = /(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\s+(\d{2}\.\d{2}\.\d{4})/i;
+                
+                // Build a map of weekday name → date from current calendar week
+                const weekDayMap = {};
+                DAY_NAMES.forEach((name, i) => { weekDayMap[name.toLowerCase()] = days[i]; });
+                weekDayMap['sonntag'] = null; // no sunday in our calendar
+                
+                for (let line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+                    const dayMatch = trimmed.match(dayRegex);
+                    if (dayMatch) {
+                        const dayNameLower = dayMatch[1].toLowerCase();
+                        if (weekDayMap[dayNameLower]) {
+                            // FIX 3: Use the day from the CURRENT calendar week, not from import text date
+                            currentDay = weekDayMap[dayNameLower];
+                        } else {
+                            // Fallback: use date from text
+                            const [d,m,y] = dayMatch[2].split('.');
+                            currentDay = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
+                        }
+                        continue;
+                    }
+                    if (!currentDay) continue;
+                    const rawParts = trimmed.split('/');
+                    if (rawParts.length < 3) continue;
+                    const p = rawParts.map(x => x.trim());
+                    if (p[0].toUpperCase() !== 'LIEFERUNG') continue;
+                    const customer = p[1] || '';
+                    const address = p[2] || '';
+                    const memo = p[3] || '';
+                    const auftragsNr = p.slice(4).join('/').trim();
+                    if (!customer && !address) continue;
+                    const eleMatch = memo.match(/(\d+)\s*ELE/i);
+                    const target = eleMatch ? parseInt(eleMatch[1]) : 0;
+                    const id = `cal-${crypto.randomUUID()}`;
+                    // Store as local YYYY-MM-DD string to avoid timezone issues
+                    const deliveryDateStr = toLocalDateStr(currentDay);
+                    newEntries.push({ id, entryType: 'LIEFERUNG', customer, address, memo, auftragsNr, target, deliveryDate: deliveryDateStr, image: null, createdAt: new Date().toISOString() });
+                }
+                if (newEntries.length > 0) {
+                    const { db, doc, setDoc } = window.FirebaseSDK;
+                    for (const e of newEntries) {
+                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calentries', e.id), e);
+                    }
+                }
+                setCalImportText('');
+                setShowCalImport(false);
+                setCalImportResult(newEntries.length);
+            };
+
+            // FIX 2: PDF without empty pages — only add page break before images, no blank pages
+            const triggerEntryPDF = (entry) => {
+                setShowCalPdfModal(entry);
+                setTimeout(() => {
+                    const el = document.getElementById('cal-single-pdf-content');
+                    if (!el) return;
+                    html2pdf().set({
+                        margin: 10,
+                        filename: `Auftrag_${(entry.auftragsNr||'export').replace(/\//g,'_')}.pdf`,
+                        image: { type:'jpeg', quality:0.98 },
+                        html2canvas: { scale:2, useCORS:true, backgroundColor:'#ffffff' },
+                        jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
+                        pagebreak: { mode: ['css'] }
+                    }).from(el).save().then(() => setShowCalPdfModal(null));
+                }, 300);
+            };
+
+            // FIX 4: Week PDF with weekday names and KW shown
+            const triggerWeekPDF = () => {
+                setTimeout(() => {
+                    const el = document.getElementById('cal-week-pdf-content');
+                    if (!el) return;
+                    html2pdf().set({
+                        margin: 5,
+                        filename: `Kalender_KW${getWeekNumber(calWeek)}.pdf`,
+                        image: { type:'jpeg', quality:0.98 },
+                        html2canvas: { scale:2, useCORS:true, backgroundColor:'#ffffff' },
+                        jsPDF: { unit:'mm', format:'a3', orientation:'landscape' },
+                    }).from(el).save();
+                }, 200);
+            };
+
+            // FIX 6: Paste copied entry to a day
+            const pasteCopyToDay = async (dayStr) => {
+                if (!copyEntry) return;
+                const { db, doc, setDoc } = window.FirebaseSDK;
+                const id = `cal-${crypto.randomUUID()}`;
+                const newEntry = {
+                    ...copyEntry,
+                    id,
+                    deliveryDate: dayStr,
+                    createdAt: new Date().toISOString()
+                };
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calentries', id), newEntry);
+                setCopyEntry(null);
+                setPasteTargetDay(null);
+            };
+
+            // Default new entry date = Monday of current view
+            const defaultNewDate = toLocalDateStr(days[0]);
+
+            const emptyEntry = {
+                isNew: true,
+                customer: '', address: '', memo: '', auftragsNr: '',
+                target: '', image: null,
+                deliveryDate: defaultNewDate
+            };
+
+            return (
+                <div style={{ minHeight:'100vh', background:'#f1f5f9', display:'flex', flexDirection:'column' }}>
+                    
+                    {/* Hidden PDF areas */}
+                    <div style={{ position:'absolute', left:'-9999px', top:0 }}>
+                        {/* FIX 2: Single entry PDF — images inline on same page, page-break only if needed */}
+                        {showCalPdfModal && (
+                            <div id="cal-single-pdf-content" style={{ padding:'15mm', background:'#fff', color:'#000', fontFamily:'Inter,Arial,sans-serif', width:'190mm' }}>
+                                <h1 style={{ fontSize:'22pt', fontWeight:900, borderBottom:'2pt solid #000', paddingBottom:'4mm', marginBottom:'6mm', textTransform:'uppercase' }}>Auftrag</h1>
+                                <table style={{ width:'100%', marginBottom:'8mm', fontSize:'11pt' }}>
+                                    <tbody>
+                                        <tr><td style={{ color:'#888', fontWeight:'bold', width:'35mm', paddingBottom:'3mm' }}>Auftragsnr.</td><td style={{ fontWeight:900 }}>{showCalPdfModal.auftragsNr || '—'}</td></tr>
+                                        <tr><td style={{ color:'#888', fontWeight:'bold', paddingBottom:'3mm' }}>Kunde</td><td style={{ fontWeight:'bold' }}>{showCalPdfModal.customer}</td></tr>
+                                        <tr><td style={{ color:'#888', fontWeight:'bold', paddingBottom:'3mm' }}>Adresse</td><td>{showCalPdfModal.address}</td></tr>
+                                        <tr><td style={{ color:'#888', fontWeight:'bold', paddingBottom:'3mm' }}>Datum</td><td>{formatDate(showCalPdfModal.deliveryDate)}</td></tr>
+                                        <tr><td style={{ color:'#888', fontWeight:'bold', paddingBottom:'3mm' }}>Memo</td><td>{showCalPdfModal.memo}</td></tr>
+                                        {showCalPdfModal.target > 0 && <tr><td style={{ color:'#888', fontWeight:'bold' }}>ELE</td><td style={{ fontWeight:900 }}>{showCalPdfModal.target} ELE</td></tr>}
+                                    </tbody>
+                                </table>
+                                {/* FIX 2: Only show images if they exist, no forced empty pages */}
+                                {showCalPdfModal.image && (
+                                    <div style={{ textAlign:'center', marginTop:'8mm' }}>
+                                        <p style={{ fontSize:'8pt', color:'#888', marginBottom:'4mm', fontWeight:'bold', textTransform:'uppercase' }}>Foto</p>
+                                        <img src={showCalPdfModal.image} style={{ maxWidth:'100%', maxHeight:'160mm', objectFit:'contain', display:'block', margin:'0 auto' }} />
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* FIX 4: Week PDF with weekday names + KW */}
+                        <div id="cal-week-pdf-content" style={{ padding:'8mm', background:'#fff', fontFamily:'Inter,Arial,sans-serif', width:'420mm' }}>
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'5mm', borderBottom:'1.5pt solid #000', paddingBottom:'3mm' }}>
+                                <div>
+                                    <h1 style={{ fontSize:'16pt', fontWeight:900, margin:0, textTransform:'uppercase' }}>Wochenkalender</h1>
+                                    <div style={{ fontSize:'12pt', fontWeight:900, color:'#2563eb', margin:'1mm 0 0 0' }}>KW {getWeekNumber(calWeek)}</div>
+                                </div>
+                                <p style={{ margin:0, fontSize:'9pt', color:'#666' }}>{formatDate(toLocalDateStr(days[0]))} – {formatDate(toLocalDateStr(days[5]))}</p>
+                            </div>
+                            <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:'3mm' }}>
+                                {days.map((day,di) => {
+                                    const dayStr = toLocalDateStr(day);
+                                    const dayEnt = entriesForDay(dayStr);
+                                    return (
+                                        <div key={di}>
+                                            <div style={{ background:'#f1f5f9', borderRadius:'4pt', padding:'3mm', marginBottom:'2mm', textAlign:'center' }}>
+                                                {/* FIX 4: Show weekday name */}
+                                                <div style={{ fontSize:'9pt', fontWeight:900, textTransform:'uppercase', color:'#1e293b' }}>{DAY_NAMES[di]}</div>
+                                                <div style={{ fontSize:'7pt', color:'#64748b' }}>{formatDate(dayStr)}</div>
+                                                <div style={{ fontSize:'6pt', color:'#3b82f6', fontWeight:'bold' }}>{dayEnt.length} Aufträge</div>
+                                            </div>
+                                            {dayEnt.map((e,ei) => {
+                                                const ci = colorIndex[e.id] || 0;
+                                                return (
+                                                    <div key={ei} style={{ background:CARD_COLORS[ci], borderLeft:`2pt solid ${CARD_BORDER[ci]}`, borderRadius:'4pt', padding:'2mm 3mm', marginBottom:'2mm' }}>
+                                                        {e.auftragsNr && <div style={{ fontSize:'5.5pt', color:CARD_TEXT[ci], fontWeight:900, opacity:0.7, marginBottom:'1mm' }}>{e.auftragsNr}</div>}
+                                                        <div style={{ fontSize:'7pt', fontWeight:900, color:CARD_TEXT[ci], lineHeight:1.2, marginBottom:'1mm' }}>{e.customer}</div>
+                                                        <div style={{ fontSize:'6pt', color:CARD_TEXT[ci], opacity:0.8, lineHeight:1.2, marginBottom:'1mm' }}>{e.address}</div>
+                                                        <div style={{ fontSize:'6pt', color:CARD_TEXT[ci], opacity:0.7, lineHeight:1.2 }}>{e.memo}</div>
+                                                        {e.target > 0 && <div style={{ display:'inline-block', background:CARD_BORDER[ci], color:'#fff', fontSize:'5.5pt', fontWeight:900, padding:'0.5mm 2mm', borderRadius:'3pt', marginTop:'1mm' }}>{e.target} ELE</div>}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ── TOP NAV ── */}
+                    <div style={{ background:'#1e293b', padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, zIndex:40, borderBottom:'2px solid #334155', flexShrink:0 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                            <button
+                                onClick={onBack}
+                                style={{ background:'#334155', border:'none', borderRadius:10, width:34, height:34, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}
+                            >
+                                <Icon name="arrow-left" size={16} className="text-blue-400"/>
+                            </button>
+                            <div>
+                                <div style={{ color:'#94a3b8', fontSize:8, fontWeight:900, textTransform:'uppercase', letterSpacing:1 }}>Wochenkalender</div>
+                                <div style={{ color:'#fff', fontSize:13, fontWeight:900, fontStyle:'italic' }}>
+                                    KW {getWeekNumber(calWeek)} — {formatDate(toLocalDateStr(days[0]))} bis {formatDate(toLocalDateStr(days[5]))}
+                                </div>
+                            </div>
+                        </div>
+                        <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+                            <button onClick={() => { const d=new Date(calWeek); d.setDate(d.getDate()-7); setCalWeek(d); }} style={{ background:'#334155', border:'none', borderRadius:8, width:30, height:30, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                <Icon name="chevron-left" size={14} className="text-blue-400"/>
+                            </button>
+                            <button onClick={() => setCalWeek(new Date())} style={{ background:'#334155', border:'none', borderRadius:8, padding:'4px 10px', color:'#cbd5e1', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer' }}>
+                                Heute
+                            </button>
+                            <button onClick={() => { const d=new Date(calWeek); d.setDate(d.getDate()+7); setCalWeek(d); }} style={{ background:'#334155', border:'none', borderRadius:8, width:30, height:30, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                <Icon name="chevron-right" size={14} className="text-blue-400"/>
+                            </button>
+                            <button onClick={() => setEditCalEntry({...emptyEntry})} style={{ background:'#10b981', border:'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                                <Icon name="plus" size={12}/>Neu
+                            </button>
+                            <button onClick={() => setShowCalImport(true)} style={{ background:'#3b82f6', border:'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                                <Icon name="upload" size={12}/>Import
+                            </button>
+                            <button onClick={triggerWeekPDF} style={{ background:'#475569', border:'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                                <Icon name="download" size={12}/>A3 PDF
+                            </button>
+                            {/* FIX 5: Delete mode toggle */}
+                            <button 
+                                onClick={() => { setDeleteMode(!deleteMode); setCopyEntry(null); }}
+                                style={{ background: deleteMode ? '#ef4444' : '#334155', border: deleteMode ? '2px solid #fca5a5' : 'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}
+                            >
+                                <Icon name={deleteMode ? "x" : "trash-2"} size={12}/>{deleteMode ? 'Fertig' : 'Löschen'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Mode banners */}
+                    {deleteMode && (
+                        <div style={{ background:'#ef4444', padding:'8px 16px', textAlign:'center', fontSize:10, fontWeight:900, color:'#fff', textTransform:'uppercase', letterSpacing:1 }}>
+                            🗑 LÖSCHMODUS AKTIV — Auftrag anklicken zum löschen — dann „Fertig" klicken
+                        </div>
+                    )}
+                    {copyEntry && (
+                        <div style={{ background:'#f59e0b', padding:'8px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:10, fontWeight:900, color:'#fff' }}>
+                            <span>📋 KOPIEREN: „{copyEntry.customer}" — Auf einen Tag-Bereich klicken zum Einfügen</span>
+                            <button onClick={() => setCopyEntry(null)} style={{ background:'rgba(0,0,0,0.2)', border:'none', borderRadius:6, padding:'3px 10px', color:'#fff', cursor:'pointer', fontSize:9, fontWeight:900 }}>Abbrechen</button>
+                        </div>
+                    )}
+
+                    {/* ── KALENDER GRID ── */}
+                    <div style={{ flex:1, overflowX:'auto', overflowY:'auto' }}>
+                        <div style={{ minWidth:760 }}>
+                            {/* FIX 4: Wochentag-Namen oben */}
+                            <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', borderBottom:'2px solid #000', background:'#1e293b' }}>
+                                {DAY_NAMES.map((name,di) => (
+                                    <div key={di} style={{ textAlign:'center', padding:'6px 4px', borderRight: di<5 ? '1px solid #334155':'none' }}>
+                                        <div style={{ fontSize:10, fontWeight:900, color:'#fff', textTransform:'uppercase', letterSpacing:1 }}>{name}</div>
+                                        <div style={{ fontSize:9, color:'#94a3b8', marginTop:1 }}>{formatDate(toLocalDateStr(days[di]))}</div>
+                                        <div style={{ fontSize:9, color:'#60a5fa', marginTop:1 }}>{entriesForDay(toLocalDateStr(days[di])).length} Aufträge</div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Auftrags-Spalten */}
+                            <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', background:'#fff', alignItems:'start' }}>
+                                {days.map((day,di) => {
+                                    const dayStr = toLocalDateStr(day);
+                                    const dayEnt = entriesForDay(dayStr);
+                                    const isPasteTarget = copyEntry && !deleteMode;
+                                    return (
+                                        <div 
+                                            key={di} 
+                                            className={`cal-col${isPasteTarget ? ' paste-target-col' : ''}`}
+                                            onClick={() => {
+                                                if (isPasteTarget) pasteCopyToDay(dayStr);
+                                            }}
+                                            style={{ cursor: isPasteTarget ? 'copy' : 'default' }}
+                                        >
+                                            {dayEnt.length === 0 && (
+                                                <div style={{ height:40, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                                    {isPasteTarget 
+                                                        ? <span style={{ fontSize:9, color:'#f59e0b', fontWeight:900 }}>+ Hier einfügen</span>
+                                                        : <span style={{ fontSize:9, color:'#cbd5e1', fontStyle:'italic' }}>—</span>
+                                                    }
+                                                </div>
+                                            )}
+                                            {dayEnt.map((e) => {
+                                                const ci = colorIndex[e.id] || 0;
+                                                return (
+                                                    <div
+                                                        key={e.id}
+                                                        className={`cal-card-item${deleteMode ? ' delete-mode-card' : ''}`}
+                                                        style={{ background:CARD_COLORS[ci], borderLeftColor:CARD_BORDER[ci], color:CARD_TEXT[ci], cursor: deleteMode ? 'pointer' : 'pointer' }}
+                                                        onClick={(ev) => {
+                                                            ev.stopPropagation();
+                                                            if (deleteMode) {
+                                                                if (confirm(`"${e.customer}" löschen?`)) deleteCalEntry(e.id);
+                                                            } else if (copyEntry) {
+                                                                // clicking an entry when in copy mode — paste to this day
+                                                                pasteCopyToDay(dayStr);
+                                                            } else {
+                                                                setEditCalEntry({...e});
+                                                            }
+                                                        }}
+                                                    >
+                                                        {e.image && <div className="green-dot"></div>}
+                                                        {deleteMode && (
+                                                            <div style={{ position:'absolute', top:3, left:3, background:'#ef4444', borderRadius:'50%', width:14, height:14, display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, color:'#fff', fontWeight:900 }}>✕</div>
+                                                        )}
+                                                        <div style={{ fontSize:8, fontWeight:900, letterSpacing:1, textTransform:'uppercase', marginBottom:3, padding:'1px 5px', background:CARD_BORDER[ci], color:'#fff', borderRadius:2, display:'inline-block', marginLeft: deleteMode ? 16 : 0 }}>
+                                                            {e.entryType || 'LIEFERUNG'}
+                                                        </div>
+                                                        {e.auftragsNr && (
+                                                            <div style={{ fontSize:8, fontWeight:900, opacity:0.75, marginBottom:2, textTransform:'uppercase', paddingRight: e.image ? 10 : 0 }}>
+                                                                {e.auftragsNr}
+                                                            </div>
+                                                        )}
+                                                        <div style={{ fontSize:10, fontWeight:900, lineHeight:1.3, marginBottom:2, textTransform:'uppercase' }}>{e.customer}</div>
+                                                        <div style={{ fontSize:9, fontWeight:700, lineHeight:1.3, marginBottom:2, opacity:0.85 }}>{e.address}</div>
+                                                        {e.memo && <div style={{ fontSize:8, lineHeight:1.3, opacity:0.75 }}>{e.memo}</div>}
+                                                        {e.target > 0 && (
+                                                            <div style={{ marginTop:3, display:'inline-block', background:CARD_BORDER[ci], color:'#fff', fontSize:8, fontWeight:900, padding:'1px 5px', borderRadius:3 }}>
+                                                                {e.target} ELE
+                                                            </div>
+                                                        )}
+                                                        {/* FIX 6: Copy button per card (only in normal mode) */}
+                                                        {!deleteMode && !copyEntry && (
+                                                            <button
+                                                                onClick={(ev) => { ev.stopPropagation(); setCopyEntry({...e}); }}
+                                                                title="Kopieren"
+                                                                style={{ position:'absolute', bottom:3, right:22, background:'rgba(37,99,235,0.15)', border:'none', borderRadius:3, padding:'1px 4px', cursor:'pointer', fontSize:9, color:'#2563eb', lineHeight:1 }}
+                                                            >⧉</button>
+                                                        )}
+                                                        {!deleteMode && (
+                                                            <button
+                                                                onClick={(ev) => { ev.stopPropagation(); if(!copyEntry) deleteCalEntry(e.id); }}
+                                                                style={{ position:'absolute', bottom:3, right:3, background:'rgba(220,38,38,0.15)', border:'none', borderRadius:3, padding:'1px 4px', cursor:'pointer', fontSize:9, color:'#dc2626', lineHeight:1 }}
+                                                            >✕</button>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                            {/* FIX 6: Paste indicator when entries exist */}
+                                            {isPasteTarget && dayEnt.length > 0 && (
+                                                <div style={{ margin:'4px 0', padding:'6px', background:'rgba(245,158,11,0.15)', border:'1px dashed #f59e0b', borderRadius:4, textAlign:'center', fontSize:9, color:'#f59e0b', fontWeight:900 }}>
+                                                    + Hier einfügen
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ── EDIT / NEU MODAL ── */}
+                    {editCalEntry && (
+                        <div style={{ position:'fixed', inset:0, zIndex:50, background:'rgba(15,23,42,0.96)', display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}>
+                            <div style={{ width:'100%', maxWidth:400, background:'rgba(51,65,85,0.98)', backdropFilter:'blur(12px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:24, padding:24, display:'flex', flexDirection:'column', gap:12 }}>
+                                <h3 style={{ color:'#fff', fontSize:11, fontWeight:900, textTransform:'uppercase', fontStyle:'italic', margin:0 }}>
+                                    {editCalEntry.isNew ? 'Neuer Eintrag' : 'Auftrag bearbeiten'}
+                                </h3>
+                                {!editCalEntry.isNew && (
+                                    <button
+                                        onClick={() => triggerEntryPDF(editCalEntry)}
+                                        style={{ alignSelf:'flex-start', background:'#3b82f6', border:'none', borderRadius:8, padding:'6px 12px', color:'#fff', fontSize:9, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}
+                                    >
+                                        <Icon name="download" size={12}/>PDF exportieren
+                                    </button>
+                                )}
+                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#0f172a', border:'2px solid #3b82f6', color:'#60a5fa', fontSize:12, fontWeight:900, textTransform:'uppercase', letterSpacing:1, boxSizing:'border-box' }}
+                                    placeholder="Typ (z.B. LIEFERUNG)" value={editCalEntry.entryType || 'LIEFERUNG'}
+                                    onChange={e => setEditCalEntry({...editCalEntry, entryType:e.target.value.toUpperCase()})}/>
+                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }}
+                                    placeholder="Kunde *" value={editCalEntry.customer}
+                                    onChange={e => setEditCalEntry({...editCalEntry, customer:e.target.value})}/>
+                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }}
+                                    placeholder="Adresse" value={editCalEntry.address}
+                                    onChange={e => setEditCalEntry({...editCalEntry, address:e.target.value})}/>
+                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }}
+                                    placeholder="Memo / Hausinfo" value={editCalEntry.memo}
+                                    onChange={e => setEditCalEntry({...editCalEntry, memo:e.target.value})}/>
+                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }}
+                                    placeholder="Auftragsnr. (z.B. 251266654/SLI)" value={editCalEntry.auftragsNr}
+                                    onChange={e => setEditCalEntry({...editCalEntry, auftragsNr:e.target.value})}/>
+                                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                                    <input type="number" style={{ padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }}
+                                        placeholder="ELE" value={editCalEntry.target || ''}
+                                        onChange={e => setEditCalEntry({...editCalEntry, target:e.target.value})}/>
+                                    {/* FIX 1: Date input uses local date string directly */}
+                                    <input type="date" style={{ padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }}
+                                        value={editCalEntry.deliveryDate?.substring(0,10) || ''}
+                                        onChange={e => setEditCalEntry({...editCalEntry, deliveryDate: e.target.value})}/>
+                                </div>
+                                <div>
+                                    <input type="file" accept="image/*" className="hidden" id="cal-img-upload-modal"
+                                        onChange={async(ev) => {
+                                            if (!ev.target.files[0]) return;
+                                            const b64 = await compressCalImage(ev.target.files[0]);
+                                            setEditCalEntry(prev => ({...prev, image:b64}));
+                                            ev.target.value = '';
+                                        }}/>
+                                    <label htmlFor="cal-img-upload-modal" style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'10px', border:'1px dashed rgba(255,255,255,0.2)', borderRadius:10, color:'#94a3b8', cursor:'pointer', fontSize:9, fontWeight:700, textTransform:'uppercase' }}>
+                                        <Icon name="camera" size={14}/>{editCalEntry.image ? 'Foto ersetzen' : 'Foto anhängen'}
+                                    </label>
+                                    {editCalEntry.image && (
+                                        <div style={{ position:'relative', marginTop:6 }}>
+                                            <img src={editCalEntry.image} style={{ width:'100%', height:80, objectFit:'cover', borderRadius:8, border:'1px solid rgba(255,255,255,0.1)' }}/>
+                                            <button onClick={() => setEditCalEntry(p => ({...p, image:null}))} style={{ position:'absolute', top:4, right:4, background:'#ef4444', border:'none', borderRadius:'50%', width:18, height:18, cursor:'pointer', color:'#fff', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10 }}>✕</button>
+                                        </div>
+                                    )}
+                                </div>
+                                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginTop:4 }}>
+                                    <button onClick={() => setEditCalEntry(null)} style={{ padding:'12px', background:'transparent', border:'none', color:'#64748b', fontWeight:900, fontSize:10, textTransform:'uppercase', cursor:'pointer' }}>Abbrechen</button>
+                                    <button
+                                        onClick={() => {
+                                            if (!editCalEntry.customer) return;
+                                            if (editCalEntry.isNew) saveNewCalEntry(editCalEntry);
+                                            else saveCalEntry(editCalEntry);
+                                        }}
+                                        style={{ padding:'12px', background:'#3b82f6', border:'none', borderRadius:12, color:'#fff', fontWeight:900, fontSize:10, textTransform:'uppercase', cursor:'pointer' }}
+                                    >Speichern</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── IMPORT MODAL ── */}
+                    {showCalImport && (
+                        <div style={{ position:'fixed', inset:0, zIndex:50, background:'rgba(15,23,42,0.98)', padding:24, display:'flex', flexDirection:'column' }}>
+                            <div style={{ color:'#60a5fa', fontSize:10, fontWeight:900, textTransform:'uppercase', letterSpacing:1, marginBottom:4 }}>
+                                Import → KW {getWeekNumber(calWeek)} ({formatDate(toLocalDateStr(days[0]))} – {formatDate(toLocalDateStr(days[5]))})
+                            </div>
+                            <div style={{ color:'#94a3b8', fontSize:9, fontWeight:700, marginBottom:8 }}>
+                                Format: Montag 20.04.2026 → LIEFERUNG / Kunde / Adresse / Memo / AuftragsNr
+                            </div>
+                            <textarea
+                                style={{ flex:1, width:'100%', background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', padding:16, borderRadius:12, fontSize:11, color:'#fff', fontFamily:'monospace', resize:'none', boxSizing:'border-box' }}
+                                placeholder={"Montag 20.04.2026 (3)\nLIEFERUNG / E.O. Knecht AG / Segelhofstrasse, 5405 Dättwil AG / Haus A12 47 ELE / 251266654/SLI"}
+                                value={calImportText}
+                                onChange={e => setCalImportText(e.target.value)}
+                            />
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginTop:24 }}>
+                                <button onClick={() => setShowCalImport(false)} style={{ padding:'14px', background:'transparent', border:'none', color:'#64748b', fontWeight:900, textTransform:'uppercase', cursor:'pointer' }}>Abbrechen</button>
+                                <button onClick={processCalImport} style={{ padding:'14px', background:'#3b82f6', border:'none', borderRadius:12, color:'#fff', fontWeight:900, cursor:'pointer' }}>Import in KW {getWeekNumber(calWeek)}</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── IMPORT RESULT ── */}
+                    {calImportResult !== null && (
+                        <div style={{ position:'fixed', inset:0, zIndex:60, background:'rgba(15,23,42,0.95)', display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
+                            <div style={{ background:'rgba(51,65,85,0.98)', backdropFilter:'blur(12px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:24, padding:32, width:'100%', maxWidth:300, display:'flex', flexDirection:'column', alignItems:'center', gap:20 }}>
+                                <div style={{ width:64, height:64, background:'#10b981', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                    <Icon name="check" size={32} className="text-white"/>
+                                </div>
+                                <div style={{ textAlign:'center' }}>
+                                    <div style={{ color:'#94a3b8', fontSize:9, fontWeight:900, textTransform:'uppercase', marginBottom:4 }}>Kalender Import KW {getWeekNumber(calWeek)}</div>
+                                    <div style={{ color:'#fff', fontSize:48, fontWeight:900, fontStyle:'italic', lineHeight:1 }}>{calImportResult}</div>
+                                    <div style={{ color:'#10b981', fontSize:11, fontWeight:900, textTransform:'uppercase', marginTop:4 }}>Aufträge erfasst</div>
+                                </div>
+                                <button onClick={() => setCalImportResult(null)} style={{ width:'100%', padding:'14px', background:'#3b82f6', border:'none', borderRadius:12, color:'#fff', fontWeight:900, fontSize:10, textTransform:'uppercase', cursor:'pointer' }}>OK</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // MAIN APP
+        // ─────────────────────────────────────────────────────────────
         function App() {
             const [pin, setPin] = useState('');
             const [view, setView] = useState('login'); 
@@ -170,6 +766,7 @@
             const [pendenzen, setPendenzen] = useState([]);
             const [hourLogs, setHourLogs] = useState([]);
             const [monteurs, setMonteurs] = useState([]);
+            const [calEntries, setCalEntries] = useState([]);
             
             const [showPendenzModal, setShowPendenzModal] = useState(null);
             const [pendenzForm, setPendenzForm] = useState({ description: '', deadline: '', monteur: '', images: [] });
@@ -188,87 +785,56 @@
             useEffect(() => {
                 const initLiveSync = async () => {
                     if (!window.FirebaseSDK) return;
-                    const { auth, signInAnonymously, onAuthStateChanged, db, collection, onSnapshot, query } = window.FirebaseSDK;
+                    const { auth, signInAnonymously, onAuthStateChanged, db, collection, onSnapshot } = window.FirebaseSDK;
                     try { await signInAnonymously(auth); } catch(e) {}
-                    const unsubscribeAuth = onAuthStateChanged(auth, (u) => {
+                    onAuthStateChanged(auth, (u) => {
                         setUser(u);
                         if (u) {
                             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'objects'), (s) => setObjects(s.docs.map(d => ({ id: d.id, ...d.data() }))));
                             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'pendenzen'), (s) => setPendenzen(s.docs.map(d => ({ id: d.id, ...d.data() }))));
                             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'hours'), (s) => setHourLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))));
                             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'monteurs'), (s) => setMonteurs(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+                            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'calentries'), (s) => setCalEntries(s.docs.map(d => ({ id: d.id, ...d.data() }))));
                         }
                     });
-                    return () => unsubscribeAuth();
                 };
                 initLiveSync();
             }, []);
 
             const handleLogin = (digit) => {
                 const newPin = pin + digit;
-                if (newPin.length < 4) setPin(newPin);
-                else {
-                    if (newPin === ADMIN_PIN) setView('dashboard');
-                    else if (newPin === WORKER_PIN) setView('worker_list');
-                    else if (newPin === HOURS_PIN) setView('hours_admin');
-                    setPin('');
-                }
+                if (newPin.length < 4) { setPin(newPin); return; }
+                if (newPin === ADMIN_PIN) setView('dashboard');
+                else if (newPin === WORKER_PIN) setView('worker_list');
+                else if (newPin === HOURS_PIN) setView('hours_admin');
+                setPin('');
             };
 
             const processTextImport = async () => {
                 if (!importText.trim()) return;
                 setIsImporting(true);
-
                 const lines = importText.split(/\r?\n/);
                 const newObjects = [];
-
                 for (let line of lines) {
                     const trimmed = line.trim();
                     if (!trimmed) continue;
-
-                    // Schrägstrich-Format: Kunde / Adresse / Memo
                     const parts = trimmed.split('/').map(p => p.trim());
-                    if (parts.length < 2) continue; // Keine gültige Zeile
-
+                    if (parts.length < 2) continue;
                     const customer = parts[0] || 'Unbekannter Kunde';
                     const address  = parts[1] || 'Unbekannte Adresse';
                     const memo     = parts[2] || '';
-
-                    // ELE-Anzahl aus Memo extrahieren (z.B. "47 ELE", "6ELE")
                     const eleMatch = memo.match(/(\d+)\s*ELE/i);
                     const target = eleMatch ? parseInt(eleMatch[1]) : 1;
-
-                    // Hausinfo: Memo ohne ELE-Teil und GIS
-                    const houseInfo = memo
-                        .replace(/\d+\s*ELE/gi, '')
-                        .replace(/\bGIS\b/gi, '')
-                        .replace(/[-–]\s*$/, '')
-                        .trim() || 'Gesamtmontage';
-
+                    const houseInfo = memo.replace(/\d+\s*ELE/gi, '').replace(/\bGIS\b/gi, '').replace(/[-–]\s*$/, '').trim() || 'Gesamtmontage';
                     const objId = `obj-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-                    newObjects.push({
-                        id: objId,
-                        name: address,
-                        customer,
-                        address,
-                        houseInfo,
-                        target,
-                        current: 0,
-                        lastRemaining: null,
-                        blockReason: null,
-                        deliveryDate: new Date().toISOString(),
-                        status: 'active',
-                        history: []
-                    });
+                    newObjects.push({ id: objId, name: address, customer, address, houseInfo, target, current: 0, lastRemaining: null, blockReason: null, deliveryDate: new Date().toISOString(), status: 'active', history: [] });
                 }
-
                 if (newObjects.length > 0) {
                     const { db, doc, setDoc } = window.FirebaseSDK;
                     for (const obj of newObjects) {
                         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), obj);
                     }
                 }
-
                 setIsImporting(false);
                 setImportText('');
                 setShowImportModal(false);
@@ -279,7 +845,6 @@
                 const now = new Date().toISOString();
                 const { db, doc, updateDoc, deleteDoc, addDoc, collection } = window.FirebaseSDK;
                 const obj = selectedObject;
-                
                 if (workerStatusMode === 'hours') {
                     if (!workerHoursName || !workerHours) return;
                     await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'hours'), {
@@ -291,7 +856,6 @@
                     } else {
                         let updates = { history: [{ date: now, mode: workerStatusMode, detail: workerStatusMode === 'blocked' ? workerBlockReason : workerRemaining }, ...(obj.history || [])] };
                         if (workerStatusMode === 'blocked') {
-                            // ── ÄNDERUNG 2: lastRemaining beim Blockieren beibehalten ──
                             updates = { ...updates, status: 'blocked', blockReason: workerBlockReason, lastRemaining: obj.lastRemaining ?? null };
                         } else if (workerStatusMode === 'partial') {
                             const open = parseInt(workerRemaining) || 0;
@@ -300,15 +864,16 @@
                         await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), updates);
                     }
                 }
-                setWorkerStatusMode(''); setWorkerRemaining(''); setWorkerBlockReason(''); setWorkerHours(''); setView('worker_list');
+                setWorkerStatusMode(''); setWorkerRemaining(''); setWorkerBlockReason(''); setWorkerHours('');
+                setView('worker_list');
             };
 
             const saveManualEdit = async () => {
                 if (!editObject) return;
                 const { db, doc, updateDoc } = window.FirebaseSDK;
                 await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', editObject.id), {
-                    address: editObject.address, customer: editObject.customer, houseInfo: editObject.houseInfo, target: parseInt(editObject.target) || 0,
-                    name: editObject.address
+                    address: editObject.address, customer: editObject.customer, houseInfo: editObject.houseInfo,
+                    target: parseInt(editObject.target) || 0, name: editObject.address
                 });
                 setEditObject(null);
             };
@@ -317,114 +882,67 @@
                 e.stopPropagation();
                 if (!confirm("Möchten Sie dieses Objekt wirklich löschen?")) return;
                 const { db, doc, deleteDoc } = window.FirebaseSDK;
-                try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', objId));
-                } catch (err) {
-                    console.error("Fehler beim Löschen des Objekts:", err);
-                }
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', objId));
             };
 
             const unblockObject = async (e, obj) => {
                 e.stopPropagation();
                 const { db, doc, updateDoc } = window.FirebaseSDK;
-                try {
-                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), {
-                        status: 'active', blockReason: null
-                    });
-                } catch (err) {
-                    console.error("Fehler beim Entsperren:", err);
-                }
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id), { status: 'active', blockReason: null });
             };
 
             const deleteHourEntry = async (logId) => {
                 if (!confirm("Diesen Eintrag unwiderruflich löschen?")) return;
                 const { db, doc, deleteDoc } = window.FirebaseSDK;
-                try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hours', logId));
-                } catch (err) {
-                    console.error("Fehler beim Löschen des Eintrags:", err);
-                }
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hours', logId));
             };
 
             const updateHourEntry = async (logId, newVal) => {
-                if (!window.FirebaseSDK) return;
                 const { db, doc, updateDoc } = window.FirebaseSDK;
-                try {
-                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hours', logId), {
-                        hours: parseFloat(newVal) || 0
-                    });
-                } catch (err) {
-                    console.error("Fehler beim Speichern der Stunden:", err);
-                }
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'hours', logId), { hours: parseFloat(newVal) || 0 });
             };
 
-            const compressImage = (file) => {
-                return new Promise((resolve) => {
-                    const reader = new FileReader();
-                    reader.onload = (e) => {
-                        const img = new Image();
-                        img.onload = () => {
-                            const canvas = document.createElement('canvas');
-                            let width = img.width;
-                            let height = img.height;
-                            const MAX_WIDTH = 1000; 
-                            if (width > MAX_WIDTH) {
-                                height *= MAX_WIDTH / width;
-                                width = MAX_WIDTH;
-                            }
-                            canvas.width = width;
-                            canvas.height = height;
-                            const ctx = canvas.getContext('2d');
-                            ctx.drawImage(img, 0, 0, width, height);
-                            resolve(canvas.toDataURL('image/jpeg', 0.6)); 
-                        };
-                        img.src = e.target.result;
+            const compressImage = (file) => new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        let width = img.width, height = img.height;
+                        if (width > 1000) { height *= 1000 / width; width = 1000; }
+                        canvas.width = width; canvas.height = height;
+                        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL('image/jpeg', 0.6));
                     };
-                    reader.readAsDataURL(file);
-                });
-            };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
 
             const handleFileChange = async (e) => {
                 const files = Array.from(e.target.files);
                 if (!files.length) return;
-                
                 const processed = [];
-                for (const file of files) {
-                    const base64 = await compressImage(file);
-                    processed.push(base64);
-                }
+                for (const file of files) processed.push(await compressImage(file));
                 setPendenzForm(prev => ({ ...prev, images: [...prev.images, ...processed] }));
                 e.target.value = '';
             };
 
             const submitPendenz = async (e) => {
-                if (e) {
-                    if (typeof e.preventDefault === 'function') e.preventDefault();
-                    if (typeof e.stopPropagation === 'function') e.stopPropagation();
-                }
-
+                if (e) { e.preventDefault?.(); e.stopPropagation?.(); }
                 if (!pendenzForm.description || !pendenzForm.monteur || !showPendenzModal || isSubmittingPendenz) return;
-                
                 setIsSubmittingPendenz(true);
-
                 setTimeout(async () => {
                     try {
                         const { db, addDoc, collection } = window.FirebaseSDK;
-                        const objectToLink = showPendenzModal;
-                        
-                        const payload = {
-                            objectId: objectToLink.id,
-                            address: objectToLink.address,
+                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'pendenzen'), {
+                            objectId: showPendenzModal.id, address: showPendenzModal.address,
                             description: pendenzForm.description.trim(),
                             deadline: pendenzForm.deadline || new Date().toISOString().split('T')[0],
                             monteur: pendenzForm.monteur.trim(),
                             images: [...pendenzForm.images],
-                            status: 'open',
-                            createdAt: new Date().toISOString()
-                        };
-
-                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'pendenzen'), payload);
-                        
+                            status: 'open', createdAt: new Date().toISOString()
+                        });
                         setSubmitSuccess(true);
                         setTimeout(() => {
                             setSubmitSuccess(false);
@@ -433,7 +951,6 @@
                             setIsSubmittingPendenz(false);
                         }, 1200);
                     } catch (err) {
-                        console.error("Firestore Error Mobile:", err);
                         setIsSubmittingPendenz(false);
                     }
                 }, 100);
@@ -460,22 +977,13 @@
                 setTimeout(() => {
                     const element = document.getElementById('print-area-content');
                     if (!element) return;
-                    
-                    const opt = { 
-                        margin: 10,
-                        filename: `Pendenz_${data.monteur.replace(/\s+/g, '_')}.pdf`, 
-                        image: { type: 'jpeg', quality: 0.98 }, 
-                        html2canvas: { 
-                            scale: 2, 
-                            useCORS: true, 
-                            backgroundColor: '#ffffff',
-                            logging: false
-                        }, 
+                    html2pdf().set({
+                        margin: 10, filename: `Pendenz_${data.monteur.replace(/\s+/g, '_')}.pdf`,
+                        image: { type: 'jpeg', quality: 0.98 },
+                        html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
                         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
                         pagebreak: { mode: ['css', 'legacy'] }
-                    };
-                    
-                    html2pdf().set(opt).from(element).save().then(() => setPrintData(null));
+                    }).from(element).save().then(() => setPrintData(null));
                 }, 200);
             };
 
@@ -484,26 +992,14 @@
                 setTimeout(async () => {
                     const element = document.getElementById('hour-print-area-content');
                     if (!element) return;
-
-                    const opt = {
-                        margin: [10, 10, 10, 10],
-                        filename: `Stundenbericht_${summary.name}_KW${getWeekNumber(selectedDate)}.pdf`,
-                        image: { type: 'jpeg', quality: 0.98 },
-                        html2canvas: { 
-                            scale: 2, 
-                            useCORS: true, 
-                            backgroundColor: '#ffffff',
-                            letterRendering: true,
-                            scrollY: 0
-                        },
-                        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
-                    };
-
                     try {
-                        await html2pdf().set(opt).from(element).save();
-                    } catch (err) {
-                        console.error("PDF Export Fehler:", err);
+                        await html2pdf().set({
+                            margin: [10, 10, 10, 10],
+                            filename: `Stundenbericht_${summary.name}_KW${getWeekNumber(selectedDate)}.pdf`,
+                            image: { type: 'jpeg', quality: 0.98 },
+                            html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+                            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+                        }).from(element).save();
                     } finally {
                         setHourPrintData(null);
                     }
@@ -518,59 +1014,34 @@
                     if (obj.lastRemaining > 0 && obj.status !== 'finished') partial++;
                     if (obj.address?.includes("Unbekannte Adresse") || obj.name?.includes("Unbekannte Adresse")) unknown++;
                 });
-                return { 
-                    open: objects.filter(o => o.status === 'active').length, 
-                    percent: total > 0 ? Math.round((done/total)*100) : 0, 
-                    blocked, 
-                    partial, 
-                    pendenzen: pendenzen.filter(p => p.status === 'open').length,
-                    unknown
-                };
+                return { open: objects.filter(o => o.status === 'active').length, percent: total > 0 ? Math.round((done/total)*100) : 0, blocked, partial, pendenzen: pendenzen.filter(p => p.status === 'open').length, unknown };
             }, [objects, pendenzen]);
 
             const hourSummaries = useMemo(() => {
                 const map = {};
                 monteurs.forEach(m => {
-                    map[m.name] = { 
-                        name: m.name, 
-                        week: 0, 
-                        month: 0, 
-                        total: 0, 
-                        logs: [], 
-                        weekDetails: { 'Mo': 0, 'Di': 0, 'Mi': 0, 'Do': 0, 'Fr': 0, 'Sa': 0 } 
-                    };
+                    map[m.name] = { name: m.name, week: 0, month: 0, total: 0, logs: [], weekDetails: { 'Mo': 0, 'Di': 0, 'Mi': 0, 'Do': 0, 'Fr': 0, 'Sa': 0 } };
                 });
-                
                 const now = new Date(selectedDate);
-                const dayOfWeek = now.getDay(); 
-                const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); 
+                const dayOfWeek = now.getDay();
+                const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
                 const startOfWeek = new Date(now.setDate(diff));
                 startOfWeek.setHours(0,0,0,0);
-                
                 const endOfWeek = new Date(startOfWeek);
                 endOfWeek.setDate(endOfWeek.getDate() + 7);
-
                 const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
                 hourLogs.forEach(log => {
-                    if (!map[log.monteurName]) {
-                        map[log.monteurName] = { name: log.monteurName, week: 0, month: 0, total: 0, logs: [], weekDetails: { 'Mo': 0, 'Di': 0, 'Mi': 0, 'Do': 0, 'Fr': 0, 'Sa': 0 } };
-                    }
+                    if (!map[log.monteurName]) map[log.monteurName] = { name: log.monteurName, week: 0, month: 0, total: 0, logs: [], weekDetails: { 'Mo': 0, 'Di': 0, 'Mi': 0, 'Do': 0, 'Fr': 0, 'Sa': 0 } };
                     const logDate = new Date(log.date);
                     const h = parseFloat(log.hours) || 0;
                     map[log.monteurName].total += h;
                     map[log.monteurName].logs.push(log);
-                    
                     if (logDate >= startOfMonth && logDate <= new Date(now.getFullYear(), now.getMonth() + 1, 0)) map[log.monteurName].month += h;
-                    
                     if (logDate >= startOfWeek && logDate < endOfWeek) {
                         map[log.monteurName].week += h;
-                        const day = logDate.getDay();
                         const dayLabels = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
-                        const label = dayLabels[day];
-                        if (label !== 'So' && map[log.monteurName].weekDetails[label] !== undefined) {
-                            map[log.monteurName].weekDetails[label] += h;
-                        }
+                        const label = dayLabels[logDate.getDay()];
+                        if (label !== 'So' && map[log.monteurName].weekDetails[label] !== undefined) map[log.monteurName].weekDetails[label] += h;
                     }
                 });
                 return Object.values(map);
@@ -579,7 +1050,6 @@
             const filteredObjectsAdmin = useMemo(() => {
                 let list = objects;
                 if (adminFilter === 'blocked') list = list.filter(o => o.status === 'blocked');
-                // ── ÄNDERUNG 3: Teilweise-Filter zeigt auch blockierte Objekte mit offenen Elementen ──
                 else if (adminFilter === 'partial') list = list.filter(o => o.lastRemaining > 0 && o.status !== 'finished');
                 else if (adminFilter === 'pendenzen') {
                     const idsWithOpenPendenzen = new Set(pendenzen.filter(p => p.status === 'open').map(p => p.objectId));
@@ -591,9 +1061,10 @@
             }, [objects, adminFilter, searchTerm, pendenzen]);
 
             const filteredObjectsWorker = useMemo(() => {
-                return objects
-                    .filter(o => o.status !== 'finished')
-                    .filter(o => o.address.toLowerCase().includes(workerSearchTerm.toLowerCase()) || o.customer.toLowerCase().includes(workerSearchTerm.toLowerCase()));
+                return objects.filter(o => o.status !== 'finished').filter(o =>
+                    o.address.toLowerCase().includes(workerSearchTerm.toLowerCase()) ||
+                    o.customer.toLowerCase().includes(workerSearchTerm.toLowerCase())
+                );
             }, [objects, workerSearchTerm]);
 
             const activeMonteurs = useMemo(() => {
@@ -608,6 +1079,17 @@
                 setSelectedDate(newDate);
             };
 
+            if (view === 'calendar') {
+                return (
+                    <CalendarView
+                        onBack={() => setView('dashboard')}
+                        calEntries={calEntries}
+                        setCalEntries={setCalEntries}
+                        appId={appId}
+                    />
+                );
+            }
+
             const PrintArea = () => {
                 if (!printData) return null;
                 return (
@@ -616,27 +1098,29 @@
                             <div className="pdf-first-page">
                                 <h1 style={{fontSize: '24pt', fontWeight: '900', borderBottom: '3pt solid black', paddingBottom: '5mm', marginBottom: '8mm', color: '#000000'}}>PENDENZ-REPORT</h1>
                                 <table style={{width: '100%', marginBottom: '10mm', color: '#000000'}}>
-                                    <tr>
-                                        <td style={{width: '50%'}}>
-                                            <p style={{fontSize: '8pt', fontWeight: 'bold', color: '#666666', textTransform: 'uppercase', margin: 0}}>Objekt / Adresse</p>
-                                            <p style={{fontSize: '12pt', fontWeight: 'bold', margin: 0, color: '#000000'}}>{printData.address}</p>
-                                        </td>
-                                        <td>
-                                            <p style={{fontSize: '8pt', fontWeight: 'bold', color: '#666666', textTransform: 'uppercase', margin: 0}}>Monteur</p>
-                                            <p style={{fontSize: '12pt', fontWeight: 'bold', margin: 0, color: '#000000'}}>{printData.monteur}</p>
-                                        </td>
-                                    </tr>
-                                    <tr><td style={{height: '5mm'}}></td></tr>
-                                    <tr>
-                                        <td>
-                                            <p style={{fontSize: '8pt', fontWeight: 'bold', color: '#666666', textTransform: 'uppercase', margin: 0}}>Erstellt am</p>
-                                            <p style={{fontSize: '11pt', margin: 0, color: '#000000'}}>{formatDate(printData.createdAt || new Date())}</p>
-                                        </td>
-                                        <td>
-                                            <p style={{fontSize: '8pt', fontWeight: 'bold', color: '#666666', textTransform: 'uppercase', margin: 0}}>Frist bis</p>
-                                            <p style={{fontSize: '12pt', fontWeight: '900', color: '#d00000', margin: 0}}>{formatDate(printData.deadline)}</p>
-                                        </td>
-                                    </tr>
+                                    <tbody>
+                                        <tr>
+                                            <td style={{width: '50%'}}>
+                                                <p style={{fontSize: '8pt', fontWeight: 'bold', color: '#666666', textTransform: 'uppercase', margin: 0}}>Objekt / Adresse</p>
+                                                <p style={{fontSize: '12pt', fontWeight: 'bold', margin: 0, color: '#000000'}}>{printData.address}</p>
+                                            </td>
+                                            <td>
+                                                <p style={{fontSize: '8pt', fontWeight: 'bold', color: '#666666', textTransform: 'uppercase', margin: 0}}>Monteur</p>
+                                                <p style={{fontSize: '12pt', fontWeight: 'bold', margin: 0, color: '#000000'}}>{printData.monteur}</p>
+                                            </td>
+                                        </tr>
+                                        <tr><td style={{height: '5mm'}}></td></tr>
+                                        <tr>
+                                            <td>
+                                                <p style={{fontSize: '8pt', fontWeight: 'bold', color: '#666666', textTransform: 'uppercase', margin: 0}}>Erstellt am</p>
+                                                <p style={{fontSize: '11pt', margin: 0, color: '#000000'}}>{formatDate(printData.createdAt || new Date())}</p>
+                                            </td>
+                                            <td>
+                                                <p style={{fontSize: '8pt', fontWeight: 'bold', color: '#666666', textTransform: 'uppercase', margin: 0}}>Frist bis</p>
+                                                <p style={{fontSize: '12pt', fontWeight: '900', color: '#d00000', margin: 0}}>{formatDate(printData.deadline)}</p>
+                                            </td>
+                                        </tr>
+                                    </tbody>
                                 </table>
                                 <div style={{backgroundColor: '#f9f9f9', padding: '6mm', borderLeft: '4pt solid black', marginBottom: '10mm'}}>
                                     <p style={{fontSize: '8pt', fontWeight: 'bold', color: '#666666', textTransform: 'uppercase', marginBottom: '2mm'}}>Beschreibung des Mangels</p>
@@ -646,9 +1130,8 @@
                             {printData.images?.map((img, i) => (
                                 <div key={i} className="pdf-page-break" style={{ backgroundColor: '#ffffff' }}>
                                     <div className="pdf-image-container">
-                                        <p style={{fontSize: '8pt', color: '#999999', textTransform: 'uppercase', marginBottom: '4mm', fontWeight: 'bold'}}>Foto Dokumentation {i+1} von {printData.images.length}</p>
-                                        <img src={img} />
-                                        <p style={{fontSize: '7pt', color: '#cccccc', marginTop: '4mm', fontStyle: 'italic'}}>Montage Manager Pro Premium | {printData.address}</p>
+                                        <p style={{fontSize: '8pt', color: '#999999', textTransform: 'uppercase', marginBottom: '4mm', fontWeight: 'bold'}}>Foto {i+1} von {printData.images.length}</p>
+                                        <img src={img} alt="" />
                                     </div>
                                 </div>
                             ))}
@@ -659,22 +1142,16 @@
 
             const HourPrintArea = () => {
                 if (!hourPrintData) return null;
-                
                 const now = new Date(selectedDate);
-                const dayOfWeek = now.getDay(); 
-                const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1); 
+                const dayOfWeek = now.getDay();
+                const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
                 const startOfWeek = new Date(now.setDate(diff));
                 startOfWeek.setHours(0,0,0,0);
                 const endOfWeek = new Date(startOfWeek);
                 endOfWeek.setDate(endOfWeek.getDate() + 7);
-
                 const currentWeekLogs = hourPrintData.logs
-                    .filter(l => {
-                        const d = new Date(l.date);
-                        return d >= startOfWeek && d < endOfWeek && (parseFloat(l.hours) || 0) > 0;
-                    })
+                    .filter(l => { const d = new Date(l.date); return d >= startOfWeek && d < endOfWeek && (parseFloat(l.hours) || 0) > 0; })
                     .sort((a,b) => new Date(a.date) - new Date(b.date));
-
                 return (
                     <div id="hour-print-area" style={{ position: 'fixed', left: '-5000px', top: 0, width: '210mm', backgroundColor: '#ffffff', zIndex: -100 }}>
                         <div id="hour-print-area-content" style={{ padding: '25mm 20mm', backgroundColor: '#ffffff', color: '#000000', fontFamily: 'Inter, Arial, sans-serif' }}>
@@ -688,63 +1165,51 @@
                                     <p style={{ fontSize: '10pt', margin: 0, color: '#666666' }}>{formatDate(startOfWeek.toISOString())} - {formatDate(new Date(endOfWeek.getTime()-1).toISOString())}</p>
                                 </div>
                             </div>
-
                             <div style={{ marginBottom: '10mm' }}>
-                                <p style={{ fontSize: '9pt', fontWeight: 'bold', color: '#888888', textTransform: 'uppercase', margin: '0 0 2mm 0' }}>Monteur / Mitarbeiter</p>
+                                <p style={{ fontSize: '9pt', fontWeight: 'bold', color: '#888888', textTransform: 'uppercase', margin: '0 0 2mm 0' }}>Monteur</p>
                                 <h2 style={{ fontSize: '20pt', fontWeight: '900', margin: 0, textTransform: 'uppercase', color: '#000000' }}>{hourPrintData.name}</h2>
                             </div>
-
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '5mm', marginBottom: '10mm' }}>
-                                <div style={{ border: '1pt solid #dddddd', padding: '4mm', borderRadius: '3mm' }}>
-                                    <p style={{ fontSize: '8pt', fontWeight: 'bold', color: '#888888', textTransform: 'uppercase', margin: '0 0 1mm 0' }}>Woche Total</p>
-                                    <p style={{ fontSize: '16pt', fontWeight: '900', margin: 0, color: '#000000' }}>{hourPrintData.week}h</p>
-                                </div>
-                                <div style={{ border: '1pt solid #dddddd', padding: '4mm', borderRadius: '3mm' }}>
-                                    <p style={{ fontSize: '8pt', fontWeight: 'bold', color: '#888888', textTransform: 'uppercase', margin: '0 0 1mm 0' }}>Monat Total</p>
-                                    <p style={{ fontSize: '16pt', fontWeight: '900', margin: 0, color: '#000000' }}>{hourPrintData.month}h</p>
-                                </div>
-                                <div style={{ border: '1pt solid #dddddd', padding: '4mm', borderRadius: '3mm' }}>
-                                    <p style={{ fontSize: '8pt', fontWeight: 'bold', color: '#888888', textTransform: 'uppercase', margin: '0 0 1mm 0' }}>All-Time Gesamt</p>
-                                    <p style={{ fontSize: '16pt', fontWeight: '900', margin: 0, color: '#000000' }}>{hourPrintData.total}h</p>
-                                </div>
+                                {[['Woche Total', `${hourPrintData.week}h`], ['Monat Total', `${hourPrintData.month}h`], ['Gesamt', `${hourPrintData.total}h`]].map(([label, val]) => (
+                                    <div key={label} style={{ border: '1pt solid #ddd', padding: '4mm', borderRadius: '3mm' }}>
+                                        <p style={{ fontSize: '8pt', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', margin: '0 0 1mm 0' }}>{label}</p>
+                                        <p style={{ fontSize: '16pt', fontWeight: '900', margin: 0, color: '#000' }}>{val}</p>
+                                    </div>
+                                ))}
                             </div>
-
-                            <h3 style={{ fontSize: '12pt', fontWeight: '900', textTransform: 'uppercase', marginBottom: '4mm', borderBottom: '1pt solid #dddddd', paddingBottom: '2mm', color: '#000000' }}>Detail-Einträge KW {getWeekNumber(selectedDate)}</h3>
+                            <h3 style={{ fontSize: '12pt', fontWeight: '900', textTransform: 'uppercase', marginBottom: '4mm', borderBottom: '1pt solid #ddd', paddingBottom: '2mm', color: '#000' }}>Detail-Einträge KW {getWeekNumber(selectedDate)}</h3>
                             <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '15mm' }}>
                                 <thead>
-                                    <tr style={{ textAlign: 'left', borderBottom: '1.5pt solid #000' }}>
-                                        <th style={{ padding: '3mm 2mm', fontSize: '9pt', textTransform: 'uppercase', color: '#000000' }}>Datum</th>
-                                        <th style={{ padding: '3mm 2mm', fontSize: '9pt', textTransform: 'uppercase', color: '#000000' }}>Objekt / Baustelle</th>
-                                        <th style={{ padding: '3mm 2mm', fontSize: '9pt', textTransform: 'uppercase', textAlign: 'right', color: '#000000' }}>Stunden</th>
+                                    <tr style={{ borderBottom: '1.5pt solid #000' }}>
+                                        <th style={{ padding: '3mm 2mm', fontSize: '9pt', textTransform: 'uppercase', color: '#000', textAlign:'left' }}>Datum</th>
+                                        <th style={{ padding: '3mm 2mm', fontSize: '9pt', textTransform: 'uppercase', color: '#000', textAlign:'left' }}>Objekt</th>
+                                        <th style={{ padding: '3mm 2mm', fontSize: '9pt', textTransform: 'uppercase', color: '#000', textAlign:'right' }}>Stunden</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {currentWeekLogs.length > 0 ? currentWeekLogs.map((log, i) => (
                                         <tr key={i} style={{ borderBottom: '0.5pt solid #eee' }}>
-                                            <td style={{ padding: '4mm 2mm', fontSize: '11pt', fontWeight: '700', color: '#000000' }}>{formatDate(log.date)}</td>
-                                            <td style={{ padding: '4mm 2mm', fontSize: '11pt', color: '#000000' }}>{log.address}</td>
-                                            <td style={{ padding: '4mm 2mm', fontSize: '12pt', fontWeight: '900', textAlign: 'right', color: '#000000' }}>{log.hours}h</td>
+                                            <td style={{ padding: '4mm 2mm', fontSize: '11pt', fontWeight: '700', color: '#000' }}>{formatDate(log.date)}</td>
+                                            <td style={{ padding: '4mm 2mm', fontSize: '11pt', color: '#000' }}>{log.address}</td>
+                                            <td style={{ padding: '4mm 2mm', fontSize: '12pt', fontWeight: '900', textAlign: 'right', color: '#000' }}>{log.hours}h</td>
                                         </tr>
                                     )) : (
-                                        <tr>
-                                            <td colSpan="3" style={{ padding: '10mm', textAlign: 'center', fontSize: '11pt', color: '#999999', fontStyle: 'italic' }}>Keine Einträge für diese Woche vorhanden.</td>
-                                        </tr>
+                                        <tr><td colSpan="3" style={{ padding: '10mm', textAlign: 'center', fontSize: '11pt', color: '#999', fontStyle: 'italic' }}>Keine Einträge diese Woche.</td></tr>
                                     )}
                                 </tbody>
                                 <tfoot>
                                     <tr style={{ borderTop: '1.5pt solid #000' }}>
-                                        <td colSpan="2" style={{ padding: '5mm 2mm', fontSize: '11pt', fontWeight: '900', textTransform: 'uppercase', color: '#000000' }}>Wochen-Summe</td>
-                                        <td style={{ padding: '5mm 2mm', fontSize: '16pt', fontWeight: '900', textAlign: 'right', color: '#000000' }}>{hourPrintData.week}h</td>
+                                        <td colSpan="2" style={{ padding: '5mm 2mm', fontSize: '11pt', fontWeight: '900', textTransform: 'uppercase', color: '#000' }}>Wochen-Summe</td>
+                                        <td style={{ padding: '5mm 2mm', fontSize: '16pt', fontWeight: '900', textAlign: 'right', color: '#000' }}>{hourPrintData.week}h</td>
                                     </tr>
                                 </tfoot>
                             </table>
-                            
                             <div style={{ marginTop: '20mm', display: 'flex', justifyContent: 'space-between' }}>
                                 <div style={{ width: '70mm', borderTop: '1pt solid #000', paddingTop: '2mm' }}>
-                                    <p style={{ fontSize: '8pt', textTransform: 'uppercase', fontWeight: 'bold', color: '#000000' }}>Unterschrift Monteur</p>
+                                    <p style={{ fontSize: '8pt', textTransform: 'uppercase', fontWeight: 'bold', color: '#000' }}>Unterschrift Monteur</p>
                                 </div>
                                 <div style={{ width: '70mm', borderTop: '1pt solid #000', paddingTop: '2mm' }}>
-                                    <p style={{ fontSize: '8pt', textTransform: 'uppercase', fontWeight: 'bold', color: '#000000' }}>Unterschrift Bauleitung</p>
+                                    <p style={{ fontSize: '8pt', textTransform: 'uppercase', fontWeight: 'bold', color: '#000' }}>Unterschrift Bauleitung</p>
                                 </div>
                             </div>
                         </div>
@@ -752,6 +1217,7 @@
                 );
             };
 
+            // ── LOGIN ──
             if (view === 'login') return (
                 <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-slate-800">
                     <div className="w-16 h-16 bg-blue-500 rounded-2xl flex items-center justify-center shadow-xl mb-6"><Icon name="shield-check" size={32} className="text-white" /></div>
@@ -765,31 +1231,28 @@
                 </div>
             );
 
+            // ── HOURS ADMIN ──
             if (view === 'hours_admin') return (
                 <div className="min-h-screen bg-slate-800 pb-20 page-transition">
                     <HourPrintArea />
-                    <nav className="p-4 sticky top-0 z-40 glass border-b border-white/10 flex justify-between items-center no-print">
+                    <nav className="p-4 sticky top-0 z-40 glass border-b border-white/10 flex justify-between items-center">
                         <h2 className="text-sm font-black text-white italic uppercase">Stunden Dashboard</h2>
                         <button onClick={() => setView('login')} className="p-2 text-slate-400"><Icon name="log-out" size={18}/></button>
                     </nav>
                     <main className="p-4 max-w-3xl mx-auto space-y-6">
                         <section className="card-gradient p-4 rounded-2xl flex justify-between items-center">
-                            <button onClick={() => changeWeek(-1)} className="p-3 bg-slate-900/50 rounded-xl text-blue-400 active:scale-90 transition-transform">
-                                <Icon name="chevron-left" size={20} />
-                            </button>
+                            <button onClick={() => changeWeek(-1)} className="p-3 bg-slate-900/50 rounded-xl text-blue-400 active:scale-90 transition-transform"><Icon name="chevron-left" size={20} /></button>
                             <div className="text-center">
                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Kalenderwoche</p>
                                 <p className="text-lg font-black text-white italic">KW {getWeekNumber(selectedDate)}</p>
                             </div>
-                            <button onClick={() => changeWeek(1)} className="p-3 bg-slate-900/50 rounded-xl text-blue-400 active:scale-90 transition-transform">
-                                <Icon name="chevron-right" size={20} />
-                            </button>
+                            <button onClick={() => changeWeek(1)} className="p-3 bg-slate-900/50 rounded-xl text-blue-400 active:scale-90 transition-transform"><Icon name="chevron-right" size={20} /></button>
                         </section>
                         <section className="card-gradient p-6 rounded-2xl space-y-4">
                             <h3 className="text-xs font-black text-blue-400 uppercase tracking-widest">Monteure verwalten</h3>
                             <div className="flex gap-2">
                                 <input id="monteur-name-input" type="text" className="flex-1 bg-slate-900/50 border border-white/10 rounded-xl p-3 text-xs text-white" placeholder="Name (z.B. Martin)" />
-                                <button onClick={() => { const el = document.getElementById('monteur-name-input'); addMonteur(el.value); el.value=''; }} className="bg-blue-500 px-4 rounded-xl font-black text-xs uppercase">Neu</button>
+                                <button onClick={() => { const el = document.getElementById('monteur-name-input'); addMonteur(el.value); el.value=''; }} className="bg-blue-500 px-4 rounded-xl font-black text-xs uppercase text-white">Neu</button>
                             </div>
                             <div className="flex flex-wrap gap-2">
                                 {monteurs.map(m => (
@@ -834,43 +1297,18 @@
                                                 <p className="text-xs font-black text-white">{summary.total}h</p>
                                             </div>
                                         </div>
-
                                         <div className="bg-slate-900/50 p-3 rounded-xl space-y-2">
                                             <p className="text-[8px] text-slate-500 uppercase font-black tracking-widest">Detail Einträge</p>
-                                            {summary.logs
-                                                .filter(l => (parseFloat(l.hours) || 0) > 0)
-                                                .sort((a,b) => new Date(b.date) - new Date(a.date))
-                                                .map((log) => (
+                                            {summary.logs.filter(l => (parseFloat(l.hours) || 0) > 0).sort((a,b) => new Date(b.date) - new Date(a.date)).map((log) => (
                                                 <div key={log.id} className="flex items-center justify-between gap-2 border-b border-white/5 pb-2 last:border-0">
                                                     <div className="flex flex-col">
                                                         <span className="text-[8px] text-white font-bold">{formatDate(log.date)}</span>
                                                         <span className="text-[8px] text-slate-400 truncate max-w-[100px]">{log.address}</span>
                                                     </div>
                                                     <div className="flex items-center gap-1.5 shrink-0">
-                                                        <input 
-                                                            type="number" 
-                                                            step="0.5" 
-                                                            defaultValue={log.hours} 
-                                                            id={`input-hours-${log.id}`}
-                                                            className="w-10 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-[10px] font-black text-white text-center focus:outline-none focus:border-blue-400"
-                                                        />
-                                                        <button 
-                                                            onClick={() => {
-                                                                const newVal = document.getElementById(`input-hours-${log.id}`).value;
-                                                                updateHourEntry(log.id, newVal);
-                                                            }}
-                                                            className="p-1 text-emerald-400 hover:bg-emerald-400/10 rounded transition-colors"
-                                                            title="Speichern"
-                                                        >
-                                                            <Icon name="save" size={14} />
-                                                        </button>
-                                                        <button 
-                                                            onClick={() => deleteHourEntry(log.id)}
-                                                            className="p-1 text-red-400 hover:bg-red-400/10 rounded transition-colors"
-                                                            title="Löschen"
-                                                        >
-                                                            <Icon name="trash" size={14} />
-                                                        </button>
+                                                        <input type="number" step="0.5" defaultValue={log.hours} id={`input-hours-${log.id}`} className="w-10 bg-slate-800 border border-white/10 rounded px-1 py-0.5 text-[10px] font-black text-white text-center focus:outline-none focus:border-blue-400"/>
+                                                        <button onClick={() => { const v = document.getElementById(`input-hours-${log.id}`).value; updateHourEntry(log.id, v); }} className="p-1 text-emerald-400 hover:bg-emerald-400/10 rounded"><Icon name="save" size={14} /></button>
+                                                        <button onClick={() => deleteHourEntry(log.id)} className="p-1 text-red-400 hover:bg-red-400/10 rounded"><Icon name="trash" size={14} /></button>
                                                     </div>
                                                 </div>
                                             ))}
@@ -883,28 +1321,34 @@
                 </div>
             );
 
+            // ── DASHBOARD ──
             if (view === 'dashboard') return (
                 <div className="min-h-screen bg-slate-800 pb-20 page-transition">
                     <PrintArea />
-                    <nav className="p-4 sticky top-0 z-40 glass border-b border-white/10 flex justify-between items-center no-print">
+                    <nav className="p-4 sticky top-0 z-40 glass border-b border-white/10 flex justify-between items-center">
                         <h2 className="text-sm font-black text-white italic uppercase tracking-widest">Admin Panel</h2>
                         <button onClick={() => setView('login')} className="p-2 text-slate-400"><Icon name="log-out" size={18}/></button>
                     </nav>
                     <main className="p-4 max-w-3xl mx-auto space-y-6">
                         <div className="grid grid-cols-5 gap-2">
-                            {[ 
+                            {[
                                 { label: 'Aktiv', val: stats.open, color: 'blue', filter: 'all' },
                                 { label: 'Blockiert', val: stats.blocked, color: 'red', filter: 'blocked' },
                                 { label: 'Teilweise', val: stats.partial, color: 'orange', filter: 'partial' },
                                 { label: 'Pendenzen', val: stats.pendenzen, color: 'amber', filter: 'pendenzen' },
                                 { label: 'Adresse', val: stats.unknown, color: 'emerald', filter: 'unknown_address' }
                             ].map((s,i) => (
-                                <div key={i} onClick={() => s.filter && setAdminFilter(s.filter)} className={`card-gradient p-2 rounded-xl border transition-all cursor-pointer ${adminFilter === s.filter ? `border-${s.color}-400` : 'border-white/5'}`}>
+                                <div key={i} onClick={() => setAdminFilter(s.filter)} className={`card-gradient p-2 rounded-xl border transition-all cursor-pointer ${adminFilter === s.filter ? `border-${s.color}-400` : 'border-white/5'}`}>
                                     <p className="text-[7px] font-black text-slate-400 uppercase tracking-tighter">{s.label}</p>
                                     <div className={`text-lg font-black ${s.color === 'emerald' ? 'text-emerald-400' : s.color === 'blue' ? 'text-blue-400' : s.color === 'red' ? 'text-red-400' : s.color === 'amber' ? 'text-amber-400' : 'text-orange-400'}`}>{s.val}</div>
                                 </div>
                             ))}
                         </div>
+                        <button onClick={() => setView('calendar')} className="w-full card-gradient border border-blue-400/30 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 active:scale-95 transition-transform">
+                            <Icon name="calendar" size={16} className="text-blue-400" />
+                            <span>Wochenkalender</span>
+                            <Icon name="arrow-right" size={14} className="text-blue-400" />
+                        </button>
                         <button onClick={() => setShowImportModal(true)} className="w-full bg-blue-500 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-500/10">Dispo-Text Importieren</button>
                         <div className="space-y-3">
                             <div className="relative mb-4">
@@ -917,9 +1361,7 @@
                                         <h3 className="text-xs font-black text-white italic uppercase">{(obj.address?.includes("Unbekannte Adresse") || obj.name?.includes("Unbekannte Adresse")) ? <span className="text-emerald-400 animate-pulse">Unbekannte Adresse</span> : obj.address}</h3>
                                         <div className="flex items-center gap-2">
                                             <button onClick={(e) => { e.stopPropagation(); setShowPendenzModal(obj); }} className="px-2 py-1 bg-amber-500/20 border border-amber-500/40 rounded text-amber-500 text-[8px] font-black uppercase">Pendenzen melden</button>
-                                            <button onClick={(e) => deleteObject(e, obj.id)} className="p-1.5 bg-red-500/20 text-red-500 rounded hover:bg-red-500/30 transition-colors">
-                                                <Icon name="trash-2" size={14} />
-                                            </button>
+                                            <button onClick={(e) => deleteObject(e, obj.id)} className="p-1.5 bg-red-500/20 text-red-500 rounded hover:bg-red-500/30 transition-colors"><Icon name="trash-2" size={14} /></button>
                                         </div>
                                     </div>
                                     <p className="text-[10px] font-bold text-blue-300 mb-2 uppercase">{obj.customer} | {obj.houseInfo}</p>
@@ -927,43 +1369,48 @@
                                         <div className="bg-red-500/10 border border-red-500/30 p-3 rounded-lg mb-3">
                                             <div className="flex justify-between items-start gap-2">
                                                 <div>
-                                                    <p className="text-[8px] font-black text-red-400 uppercase tracking-widest mb-1">Blockier-Grund / Problem:</p>
+                                                    <p className="text-[8px] font-black text-red-400 uppercase tracking-widest mb-1">Blockier-Grund:</p>
                                                     <p className="text-[11px] font-bold text-red-200">{obj.blockReason}</p>
                                                 </div>
-                                                <button onClick={(e) => unblockObject(e, obj)} className="shrink-0 px-2 py-1.5 bg-emerald-500/20 border border-emerald-500/40 rounded-lg text-emerald-400 text-[8px] font-black uppercase whitespace-nowrap active:scale-95 transition-transform">
-                                                    ✓ Freigeben
-                                                </button>
+                                                <button onClick={(e) => unblockObject(e, obj)} className="shrink-0 px-2 py-1.5 bg-emerald-500/20 border border-emerald-500/40 rounded-lg text-emerald-400 text-[8px] font-black uppercase whitespace-nowrap active:scale-95 transition-transform">✓ Freigeben</button>
                                             </div>
                                         </div>
                                     )}
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-2">
                                             <span className="text-[8px] text-slate-400 font-bold uppercase">{formatDate(obj.deliveryDate)}</span>
-                                            {obj.lastRemaining > 0 && obj.status !== 'finished' && (
-                                                <span className="text-[9px] font-black text-orange-400 uppercase italic">Offen: {obj.lastRemaining} ELE</span>
-                                            )}
+                                            {obj.lastRemaining > 0 && obj.status !== 'finished' && <span className="text-[9px] font-black text-orange-400 uppercase italic">Offen: {obj.lastRemaining} ELE</span>}
                                         </div>
                                         <span className="text-[10px] font-black text-white">{obj.current}/{obj.target} ELE</span>
                                     </div>
-                                    <div className="w-full bg-slate-700 h-1.5 rounded-full mt-2 overflow-hidden"><div className={`h-full ${obj.status === 'blocked' ? 'bg-red-500' : 'bg-blue-400'}`} style={{width: `${(obj.current/obj.target)*100}%`}}></div></div>
+                                    <div className="w-full bg-slate-700 h-1.5 rounded-full mt-2 overflow-hidden">
+                                        <div className={`h-full ${obj.status === 'blocked' ? 'bg-red-500' : 'bg-blue-400'}`} style={{width: `${(obj.current/obj.target)*100}%`}}></div>
+                                    </div>
                                 </div>
                             ))}
                         </div>
                     </main>
                     {editObject && (
-                        <div className="fixed inset-0 z-50 bg-slate-900/95 flex items-center justify-center p-4"><div className="w-full max-w-sm glass rounded-3xl p-6 space-y-4"><h3 className="text-xs font-black text-white uppercase italic">Bearbeiten</h3><div className="space-y-3">
-                            <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Objekt / Adresse</label>
-                            <input className="w-full p-3 rounded-xl bg-slate-800 border border-white/10 text-white text-[11px] font-bold" value={editObject.address} onChange={(e) => setEditObject({...editObject, address: e.target.value})} />
-                        </div><div className="grid grid-cols-2 gap-3"><button onClick={() => setEditObject(null)} className="py-4 text-[10px] font-black uppercase text-slate-500">Abbrechen</button><button onClick={saveManualEdit} className="bg-blue-500 py-4 rounded-xl text-[10px] font-black uppercase text-white">Speichern</button></div></div></div>
+                        <div className="fixed inset-0 z-50 bg-slate-900/95 flex items-center justify-center p-4">
+                            <div className="w-full max-w-sm glass rounded-3xl p-6 space-y-4">
+                                <h3 className="text-xs font-black text-white uppercase italic">Bearbeiten</h3>
+                                <div className="space-y-3">
+                                    <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Objekt / Adresse</label>
+                                    <input className="w-full p-3 rounded-xl bg-slate-800 border border-white/10 text-white text-[11px] font-bold" value={editObject.address} onChange={(e) => setEditObject({...editObject, address: e.target.value})} />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button onClick={() => setEditObject(null)} className="py-4 text-[10px] font-black uppercase text-slate-500">Abbrechen</button>
+                                    <button onClick={saveManualEdit} className="bg-blue-500 py-4 rounded-xl text-[10px] font-black uppercase text-white">Speichern</button>
+                                </div>
+                            </div>
+                        </div>
                     )}
                     {showPendenzModal && (
                         <div className="fixed inset-0 z-[100] bg-slate-900/95 flex items-center justify-center p-4 overflow-y-auto">
                             <div className="w-full max-w-sm glass rounded-3xl p-6 space-y-4 my-auto relative">
                                 {submitSuccess ? (
                                     <div className="flex flex-col items-center justify-center py-12 space-y-4 page-transition">
-                                        <div className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center text-white animate-bounce">
-                                            <Icon name="check" size={32} />
-                                        </div>
+                                        <div className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center text-white animate-bounce"><Icon name="check" size={32} /></div>
                                         <p className="text-xs font-black text-white uppercase tracking-widest italic">Gespeichert!</p>
                                     </div>
                                 ) : (
@@ -976,24 +1423,20 @@
                                             <p className="text-[10px] font-black text-slate-400 uppercase">Fotos hinzufügen</p>
                                             <input type="file" multiple accept="image/*" onChange={handleFileChange} className="hidden" id="admin-file-upload-mobile" />
                                             <label htmlFor="admin-file-upload-mobile" className="w-full p-4 border border-dashed border-white/20 rounded-xl flex items-center justify-center text-slate-400 cursor-pointer active:bg-white/5">
-                                                <Icon name="camera" size={20} className="mr-2" /> <span className="text-[10px] font-bold uppercase">Wählen</span>
+                                                <Icon name="camera" size={20} className="mr-2" /><span className="text-[10px] font-bold uppercase">Wählen</span>
                                             </label>
                                             <div className="flex gap-2 overflow-x-auto pb-2">
                                                 {pendenzForm.images.map((img, i) => (
                                                     <div key={i} className="relative w-16 h-16 shrink-0">
                                                         <img src={img} className="w-full h-full object-cover rounded-lg border border-white/10" />
-                                                        <button type="button" onClick={() => setPendenzForm(p => ({...p, images: p.images.filter((_, idx) => idx !== i)}))} className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-[10px]"><Icon name="x" size={10} /></button>
+                                                        <button type="button" onClick={() => setPendenzForm(p => ({...p, images: p.images.filter((_,idx) => idx !== i)}))} className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-[10px]"><Icon name="x" size={10} /></button>
                                                     </div>
                                                 ))}
                                             </div>
                                         </div>
                                         <div className="grid grid-cols-2 gap-3 pt-2">
                                             <button type="button" onClick={() => setShowPendenzModal(null)} className="py-4 text-[10px] font-black uppercase text-slate-500">Abbrechen</button>
-                                            <button 
-                                                onClick={submitPendenz} 
-                                                disabled={isSubmittingPendenz || !pendenzForm.description || !pendenzForm.monteur} 
-                                                className={`bg-amber-500 py-4 rounded-xl text-[10px] font-black uppercase text-white shadow-lg active:scale-95 transition-all ${(isSubmittingPendenz || !pendenzForm.description || !pendenzForm.monteur) ? 'opacity-50 grayscale' : 'opacity-100'}`}
-                                            >
+                                            <button onClick={submitPendenz} disabled={isSubmittingPendenz || !pendenzForm.description || !pendenzForm.monteur} className={`bg-amber-500 py-4 rounded-xl text-[10px] font-black uppercase text-white shadow-lg active:scale-95 transition-all ${(isSubmittingPendenz || !pendenzForm.description || !pendenzForm.monteur) ? 'opacity-50 grayscale' : 'opacity-100'}`}>
                                                 {isSubmittingPendenz ? 'Sende...' : 'Senden'}
                                             </button>
                                         </div>
@@ -1014,9 +1457,7 @@
                     {importResult !== null && (
                         <div className="fixed inset-0 z-50 bg-slate-900/95 flex items-center justify-center p-6">
                             <div className="glass rounded-3xl p-8 w-full max-w-xs flex flex-col items-center gap-5">
-                                <div className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center shadow-lg">
-                                    <Icon name="check" size={32} className="text-white" />
-                                </div>
+                                <div className="w-16 h-16 bg-emerald-500 rounded-full flex items-center justify-center shadow-lg"><Icon name="check" size={32} className="text-white" /></div>
                                 <div className="text-center">
                                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Import abgeschlossen</p>
                                     <p className="text-4xl font-black text-white italic">{importResult}</p>
@@ -1029,12 +1470,13 @@
                 </div>
             );
 
+            // ── WORKER LIST ──
             if (view === 'worker_list') return (
                 <div className="min-h-screen bg-slate-800 pb-20 page-transition">
                     <PrintArea />
-                    <header className="p-6 flex flex-col items-center border-b border-white/5 glass no-print">
+                    <header className="p-6 flex flex-col items-center border-b border-white/5 glass">
                         <div className="w-full flex justify-end mb-2">
-                             <button onClick={() => setView('login')} className="text-slate-500"><Icon name="power" size={16}/></button>
+                            <button onClick={() => setView('login')} className="text-slate-500"><Icon name="power" size={16}/></button>
                         </div>
                         <div className="w-full flex flex-col items-center space-y-3">
                             {activeMonteurs.length > 0 ? (
@@ -1051,18 +1493,17 @@
                                     })}
                                 </div>
                             ) : (
-                                <div className="w-full max-sm py-5 px-4 rounded-[1.2rem] border-2 border-white/5 bg-slate-700/30 flex flex-col items-center opacity-40">
+                                <div className="w-full py-5 px-4 rounded-[1.2rem] border-2 border-white/5 bg-slate-700/30 flex flex-col items-center opacity-40">
                                     <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.15em]">MONTEUR STATUS</span>
                                     <h1 className="text-xs font-black text-slate-500 uppercase italic">Keine Pendenzen offen</h1>
                                 </div>
                             )}
                         </div>
-                        {/* ── ÄNDERUNG 1: Sprachauswahl mit BG, CS, EL erweitert ── */}
                         <div className="flex gap-2 justify-center mt-4 flex-wrap">
                             {['de', 'sq', 'it', 'bg', 'cs', 'el'].map(l => <button key={l} onClick={() => setLang(l)} className={`px-2.5 py-1 rounded-lg text-[8px] font-bold border transition-all ${lang === l ? 'bg-blue-500 border-blue-400 text-white' : 'bg-slate-700 border-white/5 text-slate-400'}`}>{l.toUpperCase()}</button>)}
                         </div>
                     </header>
-                    <main className="p-4 space-y-3 no-print">
+                    <main className="p-4 space-y-3">
                         <div className="relative mb-6">
                             <Icon name="search" size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
                             <input type="text" className="w-full bg-slate-900/50 border border-white/10 rounded-xl py-4 pl-12 pr-4 text-[11px] text-white font-bold" placeholder={t.search} value={workerSearchTerm} onChange={(e) => setWorkerSearchTerm(e.target.value)} />
@@ -1075,7 +1516,7 @@
                         ))}
                     </main>
                     {showMyPendenzen && (
-                        <div className="fixed inset-0 z-50 bg-slate-900/98 p-6 flex flex-col page-transition overflow-y-auto no-print">
+                        <div className="fixed inset-0 z-50 bg-slate-900/98 p-6 flex flex-col page-transition overflow-y-auto">
                             <div className="flex justify-between items-center mb-6"><h3 className="text-sm font-black text-white uppercase italic">Pendenzen: {showMyPendenzen}</h3><button onClick={() => setShowMyPendenzen(null)} className="p-2 text-slate-500"><Icon name="x" size={24}/></button></div>
                             <div className="space-y-4">
                                 {pendenzen.filter(p => p.monteur?.toLowerCase() === showMyPendenzen?.toLowerCase() && p.status === 'open').map(pen => (
@@ -1095,6 +1536,7 @@
                 </div>
             );
 
+            // ── WORKER EDIT ──
             if (view === 'worker_edit') return (
                 <div className="min-h-screen bg-slate-800 flex flex-col page-transition">
                     <header className="p-4 flex items-center gap-4 glass shadow-sm">
@@ -1133,6 +1575,7 @@
                     </main>
                 </div>
             );
+
             return null;
         }
 
