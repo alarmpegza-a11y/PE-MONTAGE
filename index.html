@@ -10,6 +10,8 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- jsPDF for reliable programmatic PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
     
     <script type="module">
@@ -106,17 +108,36 @@
 
         #cal-print-area, #cal-pdf-print-area { position: absolute; left: -9999px; top: 0; width: 420mm; background: white; }
 
-        /* Delete mode highlight */
         .delete-mode-card { cursor: pointer !important; }
         .delete-mode-card:hover { opacity: 0.7 !important; outline: 2px solid #ef4444; }
         
-        /* Copy mode highlight */
         .copy-mode-card { cursor: copy !important; }
         .copy-mode-card:hover { opacity: 0.8 !important; outline: 2px solid #f59e0b; }
         
-        /* Paste target day */
         .paste-target-col { background: rgba(245, 158, 11, 0.08) !important; }
         .paste-target-col:hover { background: rgba(245, 158, 11, 0.18) !important; cursor: copy; }
+
+        /* PDF loading overlay */
+        .pdf-loading-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(15,23,42,0.92);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+        }
+        .pdf-spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(96,165,250,0.2);
+            border-top: 4px solid #60a5fa;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -161,11 +182,9 @@
             return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
         };
 
-        // FIX 1: Corrected getCalWeekDays — uses local date math to avoid timezone shifts
         const getCalWeekDays = (base) => {
             const d = new Date(base);
-            const day = d.getDay(); // 0=Sun,1=Mon,...6=Sat
-            // Get Monday of this week
+            const day = d.getDay();
             const diffToMon = (day === 0) ? -6 : 1 - day;
             const mon = new Date(d.getFullYear(), d.getMonth(), d.getDate() + diffToMon);
             return Array.from({length: 6}, (_, i) => {
@@ -173,7 +192,6 @@
             });
         };
 
-        // Helper: get local date string YYYY-MM-DD without UTC shift
         const toLocalDateStr = (dateObj) => {
             const y = dateObj.getFullYear();
             const m = String(dateObj.getMonth() + 1).padStart(2, '0');
@@ -181,7 +199,6 @@
             return `${y}-${m}-${d}`;
         };
 
-        // Card color palettes for calendar
         const CARD_COLORS = ['#cfe2ff','#d1e7dd','#fff3cd','#f8d7da','#e2d9f3','#d0f4de','#fce4ec','#e8f5e9','#fff8e1','#e3f2fd','#f3e5f5','#e0f7fa'];
         const CARD_BORDER = ['#0d6efd','#198754','#ffc107','#dc3545','#6f42c1','#20c997','#e91e63','#4caf50','#ff9800','#2196f3','#9c27b0','#00bcd4'];
         const CARD_TEXT  = ['#052c65','#0a3622','#664d03','#58151c','#2c1654','#0a3622','#560a21','#1b5e20','#4d3700','#0d2b6e','#3b0764','#003d47'];
@@ -189,6 +206,226 @@
         const ADMIN_PIN = "8852";
         const WORKER_PIN = "8623";
         const HOURS_PIN = "8888";
+
+        // ─────────────────────────────────────────────────────────────
+        // RELIABLE PDF GENERATION using jsPDF directly
+        // This avoids all rendering/timing issues with html2pdf hidden elements
+        // ─────────────────────────────────────────────────────────────
+        const generateHoursPDF = (summary, selectedDate, hourLogs) => {
+            return new Promise((resolve) => {
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+                
+                const now = new Date(selectedDate);
+                const dayOfWeek = now.getDay();
+                const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+                const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1));
+                startOfWeek.setHours(0,0,0,0);
+                const endOfWeek = new Date(startOfWeek);
+                endOfWeek.setDate(endOfWeek.getDate() + 7);
+                const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+                const kw = getWeekNumber(selectedDate);
+                const dateRangeStr = `${formatDate(toLocalDateStr(startOfWeek))} - ${formatDate(toLocalDateStr(new Date(endOfWeek.getTime() - 1)))}`;
+                
+                const currentWeekLogs = (summary.logs || [])
+                    .filter(l => {
+                        const d = new Date(l.date);
+                        return d >= startOfWeek && d < endOfWeek && (parseFloat(l.hours) || 0) > 0;
+                    })
+                    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                const pageW = 210;
+                const pageH = 297;
+                const margin = 20;
+                const contentW = pageW - margin * 2;
+                let y = 25;
+
+                // ── HEADER ──
+                doc.setDrawColor(0, 0, 0);
+                doc.setLineWidth(0.5);
+
+                // Title
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(26);
+                doc.setTextColor(0, 0, 0);
+                doc.text('STUNDENBERICHT', margin, y);
+
+                // KW top right
+                doc.setFontSize(14);
+                doc.setFont('helvetica', 'bold');
+                doc.text(`KW ${kw}`, pageW - margin, y - 4, { align: 'right' });
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(100, 100, 100);
+                doc.text(dateRangeStr, pageW - margin, y + 3, { align: 'right' });
+
+                // Subtitle
+                doc.setFontSize(11);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(80, 80, 80);
+                doc.text('Montage Manager Pro', margin, y + 7);
+
+                y += 14;
+                doc.line(margin, y, pageW - margin, y);
+                y += 10;
+
+                // ── MONTEUR NAME ──
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(120, 120, 120);
+                doc.text('MONTEUR', margin, y);
+                y += 6;
+                doc.setFontSize(20);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(0, 0, 0);
+                doc.text(summary.name.toUpperCase(), margin, y);
+                y += 14;
+
+                // ── STATS BOXES ──
+                const boxW = (contentW - 8) / 3;
+                const boxH = 18;
+                const boxes = [
+                    { label: 'WOCHE TOTAL', value: `${summary.week}h`, color: [37, 99, 235] },
+                    { label: 'MONAT TOTAL', value: `${summary.month}h`, color: [16, 185, 129] },
+                    { label: 'GESAMT', value: `${summary.total}h`, color: [0, 0, 0] },
+                ];
+                boxes.forEach((box, i) => {
+                    const bx = margin + i * (boxW + 4);
+                    doc.setDrawColor(220, 220, 220);
+                    doc.setLineWidth(0.3);
+                    doc.setFillColor(250, 250, 250);
+                    doc.roundedRect(bx, y, boxW, boxH, 2, 2, 'FD');
+                    doc.setFontSize(7);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(140, 140, 140);
+                    doc.text(box.label, bx + 4, y + 6);
+                    doc.setFontSize(16);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(...box.color);
+                    doc.text(box.value, bx + 4, y + 14);
+                });
+                y += boxH + 12;
+
+                // ── WEEK DETAIL TABLE HEADER ──
+                doc.setFontSize(11);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(0, 0, 0);
+                doc.text(`DETAIL-EINTRÄGE KW ${kw}`, margin, y);
+                y += 3;
+                doc.setDrawColor(0, 0, 0);
+                doc.setLineWidth(0.4);
+                doc.line(margin, y, pageW - margin, y);
+                y += 7;
+
+                // Table header row
+                const col1 = margin;
+                const col2 = margin + 35;
+                const col3 = pageW - margin;
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(0, 0, 0);
+                doc.text('DATUM', col1, y);
+                doc.text('OBJEKT / ADRESSE', col2, y);
+                doc.text('STUNDEN', col3, y, { align: 'right' });
+                y += 2;
+                doc.setDrawColor(180, 180, 180);
+                doc.setLineWidth(0.3);
+                doc.line(margin, y, pageW - margin, y);
+                y += 6;
+
+                // Table rows
+                if (currentWeekLogs.length === 0) {
+                    doc.setFontSize(10);
+                    doc.setFont('helvetica', 'italic');
+                    doc.setTextColor(160, 160, 160);
+                    doc.text('Keine Einträge diese Woche.', margin + contentW / 2, y + 6, { align: 'center' });
+                    y += 16;
+                } else {
+                    currentWeekLogs.forEach((log, i) => {
+                        // Check if we need a new page
+                        if (y > pageH - 50) {
+                            doc.addPage();
+                            y = 25;
+                        }
+                        
+                        const rowBg = i % 2 === 0;
+                        if (rowBg) {
+                            doc.setFillColor(248, 250, 252);
+                            doc.rect(margin - 1, y - 4, contentW + 2, 10, 'F');
+                        }
+                        
+                        doc.setFontSize(10);
+                        doc.setFont('helvetica', 'bold');
+                        doc.setTextColor(0, 0, 0);
+                        doc.text(formatDate(log.date), col1, y);
+                        
+                        doc.setFont('helvetica', 'normal');
+                        doc.setTextColor(40, 40, 40);
+                        // Truncate long address
+                        const addr = (log.address || '').length > 45 ? (log.address || '').substring(0, 45) + '…' : (log.address || '');
+                        doc.text(addr, col2, y);
+                        
+                        doc.setFont('helvetica', 'bold');
+                        doc.setTextColor(37, 99, 235);
+                        doc.text(`${log.hours}h`, col3, y, { align: 'right' });
+                        
+                        y += 2;
+                        doc.setDrawColor(230, 230, 230);
+                        doc.setLineWidth(0.2);
+                        doc.line(margin, y, pageW - margin, y);
+                        y += 6;
+                    });
+                }
+
+                // ── TOTAL ROW ──
+                y += 2;
+                doc.setDrawColor(0, 0, 0);
+                doc.setLineWidth(0.5);
+                doc.line(margin, y - 2, pageW - margin, y - 2);
+                doc.setFillColor(245, 245, 245);
+                doc.rect(margin - 1, y - 1, contentW + 2, 12, 'F');
+                doc.setFontSize(11);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(0, 0, 0);
+                doc.text('WOCHEN-SUMME', col1, y + 7);
+                doc.setFontSize(16);
+                doc.setTextColor(37, 99, 235);
+                doc.text(`${summary.week}h`, col3, y + 8, { align: 'right' });
+                y += 20;
+
+                // ── SIGNATURES ──
+                // Check page space
+                if (y > pageH - 45) {
+                    doc.addPage();
+                    y = 25;
+                }
+
+                y = Math.max(y, pageH - 45);
+                doc.setDrawColor(0, 0, 0);
+                doc.setLineWidth(0.4);
+                // Signature line 1
+                doc.line(margin, y, margin + 65, y);
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(0, 0, 0);
+                doc.text('UNTERSCHRIFT MONTEUR', margin, y + 5);
+                // Signature line 2
+                doc.line(pageW - margin - 65, y, pageW - margin, y);
+                doc.text('UNTERSCHRIFT BAULEITUNG', pageW - margin - 65, y + 5);
+
+                // ── FOOTER ──
+                doc.setFontSize(7);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(180, 180, 180);
+                doc.text(`Montage Manager Pro • Erstellt: ${new Date().toLocaleDateString('de-DE')}`, pageW / 2, pageH - 8, { align: 'center' });
+
+                // Save
+                const filename = `Stundenbericht_${summary.name}_KW${kw}.pdf`;
+                doc.save(filename);
+                resolve();
+            });
+        };
 
         // ─────────────────────────────────────────────────────────────
         // CALENDAR VIEW
@@ -200,26 +437,17 @@
             const [calImportText, setCalImportText] = useState('');
             const [calImportResult, setCalImportResult] = useState(null);
             const [showCalPdfModal, setShowCalPdfModal] = useState(null);
-            
-            // FIX 5: Delete mode
             const [deleteMode, setDeleteMode] = useState(false);
-            
-            // FIX 6: Copy/paste mode
-            const [copyEntry, setCopyEntry] = useState(null); // entry being copied
-            const [pasteTargetDay, setPasteTargetDay] = useState(null); // day string for paste target
+            const [copyEntry, setCopyEntry] = useState(null);
+            const [pasteTargetDay, setPasteTargetDay] = useState(null);
 
             const days = getCalWeekDays(calWeek);
             const DAY_NAMES = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
 
-            // FIX 1: Use local date string for matching
             const entriesForDay = useCallback((dayStr) => {
                 return calEntries.filter(e => {
                     if (!e.deliveryDate) return false;
-                    // Parse stored date as local date string
-                    const stored = e.deliveryDate;
-                    // stored may be ISO like "2026-04-24T00:00:00.000Z" or "2026-04-24"
-                    // Extract just YYYY-MM-DD portion and compare to local date
-                    const storedDatePart = stored.substring(0, 10);
+                    const storedDatePart = e.deliveryDate.substring(0, 10);
                     return storedDatePart === dayStr;
                 });
             }, [calEntries]);
@@ -277,19 +505,15 @@
                 setEditCalEntry(null);
             };
 
-            // FIX 3: Import always uses current calendar week
             const processCalImport = async () => {
                 if (!calImportText.trim()) return;
                 const lines = calImportText.split(/\r?\n/);
                 let currentDay = null;
                 const newEntries = [];
                 const dayRegex = /(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)\s+(\d{2}\.\d{2}\.\d{4})/i;
-                
-                // Build a map of weekday name → date from current calendar week
                 const weekDayMap = {};
                 DAY_NAMES.forEach((name, i) => { weekDayMap[name.toLowerCase()] = days[i]; });
-                weekDayMap['sonntag'] = null; // no sunday in our calendar
-                
+                weekDayMap['sonntag'] = null;
                 for (let line of lines) {
                     const trimmed = line.trim();
                     if (!trimmed) continue;
@@ -297,10 +521,8 @@
                     if (dayMatch) {
                         const dayNameLower = dayMatch[1].toLowerCase();
                         if (weekDayMap[dayNameLower]) {
-                            // FIX 3: Use the day from the CURRENT calendar week, not from import text date
                             currentDay = weekDayMap[dayNameLower];
                         } else {
-                            // Fallback: use date from text
                             const [d,m,y] = dayMatch[2].split('.');
                             currentDay = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
                         }
@@ -319,7 +541,6 @@
                     const eleMatch = memo.match(/(\d+)\s*ELE/i);
                     const target = eleMatch ? parseInt(eleMatch[1]) : 0;
                     const id = `cal-${crypto.randomUUID()}`;
-                    // Store as local YYYY-MM-DD string to avoid timezone issues
                     const deliveryDateStr = toLocalDateStr(currentDay);
                     newEntries.push({ id, entryType: 'LIEFERUNG', customer, address, memo, auftragsNr, target, deliveryDate: deliveryDateStr, image: null, createdAt: new Date().toISOString() });
                 }
@@ -334,7 +555,6 @@
                 setCalImportResult(newEntries.length);
             };
 
-            // FIX 2: PDF without empty pages — only add page break before images, no blank pages
             const triggerEntryPDF = (entry) => {
                 setShowCalPdfModal(entry);
                 setTimeout(() => {
@@ -351,7 +571,6 @@
                 }, 300);
             };
 
-            // FIX 4: Week PDF with weekday names and KW shown
             const triggerWeekPDF = () => {
                 setTimeout(() => {
                     const el = document.getElementById('cal-week-pdf-content');
@@ -366,38 +585,22 @@
                 }, 200);
             };
 
-            // FIX 6: Paste copied entry to a day
             const pasteCopyToDay = async (dayStr) => {
                 if (!copyEntry) return;
                 const { db, doc, setDoc } = window.FirebaseSDK;
                 const id = `cal-${crypto.randomUUID()}`;
-                const newEntry = {
-                    ...copyEntry,
-                    id,
-                    deliveryDate: dayStr,
-                    createdAt: new Date().toISOString()
-                };
+                const newEntry = { ...copyEntry, id, deliveryDate: dayStr, createdAt: new Date().toISOString() };
                 await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calentries', id), newEntry);
                 setCopyEntry(null);
                 setPasteTargetDay(null);
             };
 
-            // Default new entry date = Monday of current view
             const defaultNewDate = toLocalDateStr(days[0]);
-
-            const emptyEntry = {
-                isNew: true,
-                customer: '', address: '', memo: '', auftragsNr: '',
-                target: '', image: null,
-                deliveryDate: defaultNewDate
-            };
+            const emptyEntry = { isNew: true, customer: '', address: '', memo: '', auftragsNr: '', target: '', image: null, deliveryDate: defaultNewDate };
 
             return (
                 <div style={{ minHeight:'100vh', background:'#f1f5f9', display:'flex', flexDirection:'column' }}>
-                    
-                    {/* Hidden PDF areas */}
                     <div style={{ position:'absolute', left:'-9999px', top:0 }}>
-                        {/* FIX 2: Single entry PDF — images inline on same page, page-break only if needed */}
                         {showCalPdfModal && (
                             <div id="cal-single-pdf-content" style={{ padding:'15mm', background:'#fff', color:'#000', fontFamily:'Inter,Arial,sans-serif', width:'190mm' }}>
                                 <h1 style={{ fontSize:'22pt', fontWeight:900, borderBottom:'2pt solid #000', paddingBottom:'4mm', marginBottom:'6mm', textTransform:'uppercase' }}>Auftrag</h1>
@@ -411,7 +614,6 @@
                                         {showCalPdfModal.target > 0 && <tr><td style={{ color:'#888', fontWeight:'bold' }}>ELE</td><td style={{ fontWeight:900 }}>{showCalPdfModal.target} ELE</td></tr>}
                                     </tbody>
                                 </table>
-                                {/* FIX 2: Only show images if they exist, no forced empty pages */}
                                 {showCalPdfModal.image && (
                                     <div style={{ textAlign:'center', marginTop:'8mm' }}>
                                         <p style={{ fontSize:'8pt', color:'#888', marginBottom:'4mm', fontWeight:'bold', textTransform:'uppercase' }}>Foto</p>
@@ -420,8 +622,6 @@
                                 )}
                             </div>
                         )}
-
-                        {/* FIX 4: Week PDF with weekday names + KW */}
                         <div id="cal-week-pdf-content" style={{ padding:'8mm', background:'#fff', fontFamily:'Inter,Arial,sans-serif', width:'420mm' }}>
                             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'5mm', borderBottom:'1.5pt solid #000', paddingBottom:'3mm' }}>
                                 <div>
@@ -437,7 +637,6 @@
                                     return (
                                         <div key={di}>
                                             <div style={{ background:'#f1f5f9', borderRadius:'4pt', padding:'3mm', marginBottom:'2mm', textAlign:'center' }}>
-                                                {/* FIX 4: Show weekday name */}
                                                 <div style={{ fontSize:'9pt', fontWeight:900, textTransform:'uppercase', color:'#1e293b' }}>{DAY_NAMES[di]}</div>
                                                 <div style={{ fontSize:'7pt', color:'#64748b' }}>{formatDate(dayStr)}</div>
                                                 <div style={{ fontSize:'6pt', color:'#3b82f6', fontWeight:'bold' }}>{dayEnt.length} Aufträge</div>
@@ -461,13 +660,9 @@
                         </div>
                     </div>
 
-                    {/* ── TOP NAV ── */}
                     <div style={{ background:'#1e293b', padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, zIndex:40, borderBottom:'2px solid #334155', flexShrink:0 }}>
                         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                            <button
-                                onClick={onBack}
-                                style={{ background:'#334155', border:'none', borderRadius:10, width:34, height:34, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}
-                            >
+                            <button onClick={onBack} style={{ background:'#334155', border:'none', borderRadius:10, width:34, height:34, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
                                 <Icon name="arrow-left" size={16} className="text-blue-400"/>
                             </button>
                             <div>
@@ -481,9 +676,7 @@
                             <button onClick={() => { const d=new Date(calWeek); d.setDate(d.getDate()-7); setCalWeek(d); }} style={{ background:'#334155', border:'none', borderRadius:8, width:30, height:30, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
                                 <Icon name="chevron-left" size={14} className="text-blue-400"/>
                             </button>
-                            <button onClick={() => setCalWeek(new Date())} style={{ background:'#334155', border:'none', borderRadius:8, padding:'4px 10px', color:'#cbd5e1', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer' }}>
-                                Heute
-                            </button>
+                            <button onClick={() => setCalWeek(new Date())} style={{ background:'#334155', border:'none', borderRadius:8, padding:'4px 10px', color:'#cbd5e1', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer' }}>Heute</button>
                             <button onClick={() => { const d=new Date(calWeek); d.setDate(d.getDate()+7); setCalWeek(d); }} style={{ background:'#334155', border:'none', borderRadius:8, width:30, height:30, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
                                 <Icon name="chevron-right" size={14} className="text-blue-400"/>
                             </button>
@@ -496,17 +689,12 @@
                             <button onClick={triggerWeekPDF} style={{ background:'#475569', border:'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
                                 <Icon name="download" size={12}/>A3 PDF
                             </button>
-                            {/* FIX 5: Delete mode toggle */}
-                            <button 
-                                onClick={() => { setDeleteMode(!deleteMode); setCopyEntry(null); }}
-                                style={{ background: deleteMode ? '#ef4444' : '#334155', border: deleteMode ? '2px solid #fca5a5' : 'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}
-                            >
+                            <button onClick={() => { setDeleteMode(!deleteMode); setCopyEntry(null); }} style={{ background: deleteMode ? '#ef4444' : '#334155', border: deleteMode ? '2px solid #fca5a5' : 'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
                                 <Icon name={deleteMode ? "x" : "trash-2"} size={12}/>{deleteMode ? 'Fertig' : 'Löschen'}
                             </button>
                         </div>
                     </div>
 
-                    {/* Mode banners */}
                     {deleteMode && (
                         <div style={{ background:'#ef4444', padding:'8px 16px', textAlign:'center', fontSize:10, fontWeight:900, color:'#fff', textTransform:'uppercase', letterSpacing:1 }}>
                             🗑 LÖSCHMODUS AKTIV — Auftrag anklicken zum löschen — dann „Fertig" klicken
@@ -519,10 +707,8 @@
                         </div>
                     )}
 
-                    {/* ── KALENDER GRID ── */}
                     <div style={{ flex:1, overflowX:'auto', overflowY:'auto' }}>
                         <div style={{ minWidth:760 }}>
-                            {/* FIX 4: Wochentag-Namen oben */}
                             <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', borderBottom:'2px solid #000', background:'#1e293b' }}>
                                 {DAY_NAMES.map((name,di) => (
                                     <div key={di} style={{ textAlign:'center', padding:'6px 4px', borderRight: di<5 ? '1px solid #334155':'none' }}>
@@ -532,91 +718,43 @@
                                     </div>
                                 ))}
                             </div>
-
-                            {/* Auftrags-Spalten */}
                             <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', background:'#fff', alignItems:'start' }}>
                                 {days.map((day,di) => {
                                     const dayStr = toLocalDateStr(day);
                                     const dayEnt = entriesForDay(dayStr);
                                     const isPasteTarget = copyEntry && !deleteMode;
                                     return (
-                                        <div 
-                                            key={di} 
-                                            className={`cal-col${isPasteTarget ? ' paste-target-col' : ''}`}
-                                            onClick={() => {
-                                                if (isPasteTarget) pasteCopyToDay(dayStr);
-                                            }}
-                                            style={{ cursor: isPasteTarget ? 'copy' : 'default' }}
-                                        >
+                                        <div key={di} className={`cal-col${isPasteTarget ? ' paste-target-col' : ''}`} onClick={() => { if (isPasteTarget) pasteCopyToDay(dayStr); }} style={{ cursor: isPasteTarget ? 'copy' : 'default' }}>
                                             {dayEnt.length === 0 && (
                                                 <div style={{ height:40, display:'flex', alignItems:'center', justifyContent:'center' }}>
-                                                    {isPasteTarget 
-                                                        ? <span style={{ fontSize:9, color:'#f59e0b', fontWeight:900 }}>+ Hier einfügen</span>
-                                                        : <span style={{ fontSize:9, color:'#cbd5e1', fontStyle:'italic' }}>—</span>
-                                                    }
+                                                    {isPasteTarget ? <span style={{ fontSize:9, color:'#f59e0b', fontWeight:900 }}>+ Hier einfügen</span> : <span style={{ fontSize:9, color:'#cbd5e1', fontStyle:'italic' }}>—</span>}
                                                 </div>
                                             )}
                                             {dayEnt.map((e) => {
                                                 const ci = colorIndex[e.id] || 0;
                                                 return (
-                                                    <div
-                                                        key={e.id}
-                                                        className={`cal-card-item${deleteMode ? ' delete-mode-card' : ''}`}
-                                                        style={{ background:CARD_COLORS[ci], borderLeftColor:CARD_BORDER[ci], color:CARD_TEXT[ci], cursor: deleteMode ? 'pointer' : 'pointer' }}
+                                                    <div key={e.id} className={`cal-card-item${deleteMode ? ' delete-mode-card' : ''}`} style={{ background:CARD_COLORS[ci], borderLeftColor:CARD_BORDER[ci], color:CARD_TEXT[ci], cursor:'pointer' }}
                                                         onClick={(ev) => {
                                                             ev.stopPropagation();
-                                                            if (deleteMode) {
-                                                                if (confirm(`"${e.customer}" löschen?`)) deleteCalEntry(e.id);
-                                                            } else if (copyEntry) {
-                                                                // clicking an entry when in copy mode — paste to this day
-                                                                pasteCopyToDay(dayStr);
-                                                            } else {
-                                                                setEditCalEntry({...e});
-                                                            }
-                                                        }}
-                                                    >
+                                                            if (deleteMode) { if (confirm(`"${e.customer}" löschen?`)) deleteCalEntry(e.id); }
+                                                            else if (copyEntry) { pasteCopyToDay(dayStr); }
+                                                            else { setEditCalEntry({...e}); }
+                                                        }}>
                                                         {e.image && <div className="green-dot"></div>}
-                                                        {deleteMode && (
-                                                            <div style={{ position:'absolute', top:3, left:3, background:'#ef4444', borderRadius:'50%', width:14, height:14, display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, color:'#fff', fontWeight:900 }}>✕</div>
-                                                        )}
-                                                        <div style={{ fontSize:8, fontWeight:900, letterSpacing:1, textTransform:'uppercase', marginBottom:3, padding:'1px 5px', background:CARD_BORDER[ci], color:'#fff', borderRadius:2, display:'inline-block', marginLeft: deleteMode ? 16 : 0 }}>
-                                                            {e.entryType || 'LIEFERUNG'}
-                                                        </div>
-                                                        {e.auftragsNr && (
-                                                            <div style={{ fontSize:8, fontWeight:900, opacity:0.75, marginBottom:2, textTransform:'uppercase', paddingRight: e.image ? 10 : 0 }}>
-                                                                {e.auftragsNr}
-                                                            </div>
-                                                        )}
+                                                        {deleteMode && <div style={{ position:'absolute', top:3, left:3, background:'#ef4444', borderRadius:'50%', width:14, height:14, display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, color:'#fff', fontWeight:900 }}>✕</div>}
+                                                        <div style={{ fontSize:8, fontWeight:900, letterSpacing:1, textTransform:'uppercase', marginBottom:3, padding:'1px 5px', background:CARD_BORDER[ci], color:'#fff', borderRadius:2, display:'inline-block', marginLeft: deleteMode ? 16 : 0 }}>{e.entryType || 'LIEFERUNG'}</div>
+                                                        {e.auftragsNr && <div style={{ fontSize:8, fontWeight:900, opacity:0.75, marginBottom:2, textTransform:'uppercase', paddingRight: e.image ? 10 : 0 }}>{e.auftragsNr}</div>}
                                                         <div style={{ fontSize:10, fontWeight:900, lineHeight:1.3, marginBottom:2, textTransform:'uppercase' }}>{e.customer}</div>
                                                         <div style={{ fontSize:9, fontWeight:700, lineHeight:1.3, marginBottom:2, opacity:0.85 }}>{e.address}</div>
                                                         {e.memo && <div style={{ fontSize:8, lineHeight:1.3, opacity:0.75 }}>{e.memo}</div>}
-                                                        {e.target > 0 && (
-                                                            <div style={{ marginTop:3, display:'inline-block', background:CARD_BORDER[ci], color:'#fff', fontSize:8, fontWeight:900, padding:'1px 5px', borderRadius:3 }}>
-                                                                {e.target} ELE
-                                                            </div>
-                                                        )}
-                                                        {/* FIX 6: Copy button per card (only in normal mode) */}
-                                                        {!deleteMode && !copyEntry && (
-                                                            <button
-                                                                onClick={(ev) => { ev.stopPropagation(); setCopyEntry({...e}); }}
-                                                                title="Kopieren"
-                                                                style={{ position:'absolute', bottom:3, right:22, background:'rgba(37,99,235,0.15)', border:'none', borderRadius:3, padding:'1px 4px', cursor:'pointer', fontSize:9, color:'#2563eb', lineHeight:1 }}
-                                                            >⧉</button>
-                                                        )}
-                                                        {!deleteMode && (
-                                                            <button
-                                                                onClick={(ev) => { ev.stopPropagation(); if(!copyEntry) deleteCalEntry(e.id); }}
-                                                                style={{ position:'absolute', bottom:3, right:3, background:'rgba(220,38,38,0.15)', border:'none', borderRadius:3, padding:'1px 4px', cursor:'pointer', fontSize:9, color:'#dc2626', lineHeight:1 }}
-                                                            >✕</button>
-                                                        )}
+                                                        {e.target > 0 && <div style={{ marginTop:3, display:'inline-block', background:CARD_BORDER[ci], color:'#fff', fontSize:8, fontWeight:900, padding:'1px 5px', borderRadius:3 }}>{e.target} ELE</div>}
+                                                        {!deleteMode && !copyEntry && <button onClick={(ev) => { ev.stopPropagation(); setCopyEntry({...e}); }} title="Kopieren" style={{ position:'absolute', bottom:3, right:22, background:'rgba(37,99,235,0.15)', border:'none', borderRadius:3, padding:'1px 4px', cursor:'pointer', fontSize:9, color:'#2563eb', lineHeight:1 }}>⧉</button>}
+                                                        {!deleteMode && <button onClick={(ev) => { ev.stopPropagation(); if(!copyEntry) deleteCalEntry(e.id); }} style={{ position:'absolute', bottom:3, right:3, background:'rgba(220,38,38,0.15)', border:'none', borderRadius:3, padding:'1px 4px', cursor:'pointer', fontSize:9, color:'#dc2626', lineHeight:1 }}>✕</button>}
                                                     </div>
                                                 );
                                             })}
-                                            {/* FIX 6: Paste indicator when entries exist */}
                                             {isPasteTarget && dayEnt.length > 0 && (
-                                                <div style={{ margin:'4px 0', padding:'6px', background:'rgba(245,158,11,0.15)', border:'1px dashed #f59e0b', borderRadius:4, textAlign:'center', fontSize:9, color:'#f59e0b', fontWeight:900 }}>
-                                                    + Hier einfügen
-                                                </div>
+                                                <div style={{ margin:'4px 0', padding:'6px', background:'rgba(245,158,11,0.15)', border:'1px dashed #f59e0b', borderRadius:4, textAlign:'center', fontSize:9, color:'#f59e0b', fontWeight:900 }}>+ Hier einfügen</div>
                                             )}
                                         </div>
                                     );
@@ -625,53 +763,22 @@
                         </div>
                     </div>
 
-                    {/* ── EDIT / NEU MODAL ── */}
                     {editCalEntry && (
                         <div style={{ position:'fixed', inset:0, zIndex:50, background:'rgba(15,23,42,0.96)', display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}>
                             <div style={{ width:'100%', maxWidth:400, background:'rgba(51,65,85,0.98)', backdropFilter:'blur(12px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:24, padding:24, display:'flex', flexDirection:'column', gap:12 }}>
-                                <h3 style={{ color:'#fff', fontSize:11, fontWeight:900, textTransform:'uppercase', fontStyle:'italic', margin:0 }}>
-                                    {editCalEntry.isNew ? 'Neuer Eintrag' : 'Auftrag bearbeiten'}
-                                </h3>
-                                {!editCalEntry.isNew && (
-                                    <button
-                                        onClick={() => triggerEntryPDF(editCalEntry)}
-                                        style={{ alignSelf:'flex-start', background:'#3b82f6', border:'none', borderRadius:8, padding:'6px 12px', color:'#fff', fontSize:9, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}
-                                    >
-                                        <Icon name="download" size={12}/>PDF exportieren
-                                    </button>
-                                )}
-                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#0f172a', border:'2px solid #3b82f6', color:'#60a5fa', fontSize:12, fontWeight:900, textTransform:'uppercase', letterSpacing:1, boxSizing:'border-box' }}
-                                    placeholder="Typ (z.B. LIEFERUNG)" value={editCalEntry.entryType || 'LIEFERUNG'}
-                                    onChange={e => setEditCalEntry({...editCalEntry, entryType:e.target.value.toUpperCase()})}/>
-                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }}
-                                    placeholder="Kunde *" value={editCalEntry.customer}
-                                    onChange={e => setEditCalEntry({...editCalEntry, customer:e.target.value})}/>
-                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }}
-                                    placeholder="Adresse" value={editCalEntry.address}
-                                    onChange={e => setEditCalEntry({...editCalEntry, address:e.target.value})}/>
-                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }}
-                                    placeholder="Memo / Hausinfo" value={editCalEntry.memo}
-                                    onChange={e => setEditCalEntry({...editCalEntry, memo:e.target.value})}/>
-                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }}
-                                    placeholder="Auftragsnr. (z.B. 251266654/SLI)" value={editCalEntry.auftragsNr}
-                                    onChange={e => setEditCalEntry({...editCalEntry, auftragsNr:e.target.value})}/>
+                                <h3 style={{ color:'#fff', fontSize:11, fontWeight:900, textTransform:'uppercase', fontStyle:'italic', margin:0 }}>{editCalEntry.isNew ? 'Neuer Eintrag' : 'Auftrag bearbeiten'}</h3>
+                                {!editCalEntry.isNew && <button onClick={() => triggerEntryPDF(editCalEntry)} style={{ alignSelf:'flex-start', background:'#3b82f6', border:'none', borderRadius:8, padding:'6px 12px', color:'#fff', fontSize:9, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}><Icon name="download" size={12}/>PDF exportieren</button>}
+                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#0f172a', border:'2px solid #3b82f6', color:'#60a5fa', fontSize:12, fontWeight:900, textTransform:'uppercase', letterSpacing:1, boxSizing:'border-box' }} placeholder="Typ (z.B. LIEFERUNG)" value={editCalEntry.entryType || 'LIEFERUNG'} onChange={e => setEditCalEntry({...editCalEntry, entryType:e.target.value.toUpperCase()})}/>
+                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }} placeholder="Kunde *" value={editCalEntry.customer} onChange={e => setEditCalEntry({...editCalEntry, customer:e.target.value})}/>
+                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }} placeholder="Adresse" value={editCalEntry.address} onChange={e => setEditCalEntry({...editCalEntry, address:e.target.value})}/>
+                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }} placeholder="Memo / Hausinfo" value={editCalEntry.memo} onChange={e => setEditCalEntry({...editCalEntry, memo:e.target.value})}/>
+                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }} placeholder="Auftragsnr." value={editCalEntry.auftragsNr} onChange={e => setEditCalEntry({...editCalEntry, auftragsNr:e.target.value})}/>
                                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-                                    <input type="number" style={{ padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }}
-                                        placeholder="ELE" value={editCalEntry.target || ''}
-                                        onChange={e => setEditCalEntry({...editCalEntry, target:e.target.value})}/>
-                                    {/* FIX 1: Date input uses local date string directly */}
-                                    <input type="date" style={{ padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }}
-                                        value={editCalEntry.deliveryDate?.substring(0,10) || ''}
-                                        onChange={e => setEditCalEntry({...editCalEntry, deliveryDate: e.target.value})}/>
+                                    <input type="number" style={{ padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }} placeholder="ELE" value={editCalEntry.target || ''} onChange={e => setEditCalEntry({...editCalEntry, target:e.target.value})}/>
+                                    <input type="date" style={{ padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }} value={editCalEntry.deliveryDate?.substring(0,10) || ''} onChange={e => setEditCalEntry({...editCalEntry, deliveryDate: e.target.value})}/>
                                 </div>
                                 <div>
-                                    <input type="file" accept="image/*" className="hidden" id="cal-img-upload-modal"
-                                        onChange={async(ev) => {
-                                            if (!ev.target.files[0]) return;
-                                            const b64 = await compressCalImage(ev.target.files[0]);
-                                            setEditCalEntry(prev => ({...prev, image:b64}));
-                                            ev.target.value = '';
-                                        }}/>
+                                    <input type="file" accept="image/*" className="hidden" id="cal-img-upload-modal" onChange={async(ev) => { if (!ev.target.files[0]) return; const b64 = await compressCalImage(ev.target.files[0]); setEditCalEntry(prev => ({...prev, image:b64})); ev.target.value = ''; }}/>
                                     <label htmlFor="cal-img-upload-modal" style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'10px', border:'1px dashed rgba(255,255,255,0.2)', borderRadius:10, color:'#94a3b8', cursor:'pointer', fontSize:9, fontWeight:700, textTransform:'uppercase' }}>
                                         <Icon name="camera" size={14}/>{editCalEntry.image ? 'Foto ersetzen' : 'Foto anhängen'}
                                     </label>
@@ -684,34 +791,17 @@
                                 </div>
                                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginTop:4 }}>
                                     <button onClick={() => setEditCalEntry(null)} style={{ padding:'12px', background:'transparent', border:'none', color:'#64748b', fontWeight:900, fontSize:10, textTransform:'uppercase', cursor:'pointer' }}>Abbrechen</button>
-                                    <button
-                                        onClick={() => {
-                                            if (!editCalEntry.customer) return;
-                                            if (editCalEntry.isNew) saveNewCalEntry(editCalEntry);
-                                            else saveCalEntry(editCalEntry);
-                                        }}
-                                        style={{ padding:'12px', background:'#3b82f6', border:'none', borderRadius:12, color:'#fff', fontWeight:900, fontSize:10, textTransform:'uppercase', cursor:'pointer' }}
-                                    >Speichern</button>
+                                    <button onClick={() => { if (!editCalEntry.customer) return; if (editCalEntry.isNew) saveNewCalEntry(editCalEntry); else saveCalEntry(editCalEntry); }} style={{ padding:'12px', background:'#3b82f6', border:'none', borderRadius:12, color:'#fff', fontWeight:900, fontSize:10, textTransform:'uppercase', cursor:'pointer' }}>Speichern</button>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* ── IMPORT MODAL ── */}
                     {showCalImport && (
                         <div style={{ position:'fixed', inset:0, zIndex:50, background:'rgba(15,23,42,0.98)', padding:24, display:'flex', flexDirection:'column' }}>
-                            <div style={{ color:'#60a5fa', fontSize:10, fontWeight:900, textTransform:'uppercase', letterSpacing:1, marginBottom:4 }}>
-                                Import → KW {getWeekNumber(calWeek)} ({formatDate(toLocalDateStr(days[0]))} – {formatDate(toLocalDateStr(days[5]))})
-                            </div>
-                            <div style={{ color:'#94a3b8', fontSize:9, fontWeight:700, marginBottom:8 }}>
-                                Format: Montag 20.04.2026 → LIEFERUNG / Kunde / Adresse / Memo / AuftragsNr
-                            </div>
-                            <textarea
-                                style={{ flex:1, width:'100%', background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', padding:16, borderRadius:12, fontSize:11, color:'#fff', fontFamily:'monospace', resize:'none', boxSizing:'border-box' }}
-                                placeholder={"Montag 20.04.2026 (3)\nLIEFERUNG / E.O. Knecht AG / Segelhofstrasse, 5405 Dättwil AG / Haus A12 47 ELE / 251266654/SLI"}
-                                value={calImportText}
-                                onChange={e => setCalImportText(e.target.value)}
-                            />
+                            <div style={{ color:'#60a5fa', fontSize:10, fontWeight:900, textTransform:'uppercase', letterSpacing:1, marginBottom:4 }}>Import → KW {getWeekNumber(calWeek)} ({formatDate(toLocalDateStr(days[0]))} – {formatDate(toLocalDateStr(days[5]))})</div>
+                            <div style={{ color:'#94a3b8', fontSize:9, fontWeight:700, marginBottom:8 }}>Format: Montag 20.04.2026 → LIEFERUNG / Kunde / Adresse / Memo / AuftragsNr</div>
+                            <textarea style={{ flex:1, width:'100%', background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', padding:16, borderRadius:12, fontSize:11, color:'#fff', fontFamily:'monospace', resize:'none', boxSizing:'border-box' }} placeholder={"Montag 20.04.2026 (3)\nLIEFERUNG / E.O. Knecht AG / Segelhofstrasse, 5405 Dättwil AG / Haus A12 47 ELE / 251266654/SLI"} value={calImportText} onChange={e => setCalImportText(e.target.value)} />
                             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginTop:24 }}>
                                 <button onClick={() => setShowCalImport(false)} style={{ padding:'14px', background:'transparent', border:'none', color:'#64748b', fontWeight:900, textTransform:'uppercase', cursor:'pointer' }}>Abbrechen</button>
                                 <button onClick={processCalImport} style={{ padding:'14px', background:'#3b82f6', border:'none', borderRadius:12, color:'#fff', fontWeight:900, cursor:'pointer' }}>Import in KW {getWeekNumber(calWeek)}</button>
@@ -719,13 +809,10 @@
                         </div>
                     )}
 
-                    {/* ── IMPORT RESULT ── */}
                     {calImportResult !== null && (
                         <div style={{ position:'fixed', inset:0, zIndex:60, background:'rgba(15,23,42,0.95)', display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
                             <div style={{ background:'rgba(51,65,85,0.98)', backdropFilter:'blur(12px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:24, padding:32, width:'100%', maxWidth:300, display:'flex', flexDirection:'column', alignItems:'center', gap:20 }}>
-                                <div style={{ width:64, height:64, background:'#10b981', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                                    <Icon name="check" size={32} className="text-white"/>
-                                </div>
+                                <div style={{ width:64, height:64, background:'#10b981', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center' }}><Icon name="check" size={32} className="text-white"/></div>
                                 <div style={{ textAlign:'center' }}>
                                     <div style={{ color:'#94a3b8', fontSize:9, fontWeight:900, textTransform:'uppercase', marginBottom:4 }}>Kalender Import KW {getWeekNumber(calWeek)}</div>
                                     <div style={{ color:'#fff', fontSize:48, fontWeight:900, fontStyle:'italic', lineHeight:1 }}>{calImportResult}</div>
@@ -775,9 +862,9 @@
             
             const [showMyPendenzen, setShowMyPendenzen] = useState(null);
             const [printData, setPrintData] = useState(null);
-            const [hourPrintData, setHourPrintData] = useState(null);
             const [selectedDate, setSelectedDate] = useState(new Date());
             const [importResult, setImportResult] = useState(null);
+            const [pdfLoading, setPdfLoading] = useState(false);
 
             const appId = 'montage-pe-a5f79';
             const t = translations[lang];
@@ -987,23 +1074,21 @@
                 }, 200);
             };
 
-            const triggerHoursPDF = (summary) => {
-                setHourPrintData(summary);
-                setTimeout(async () => {
-                    const element = document.getElementById('hour-print-area-content');
-                    if (!element) return;
-                    try {
-                        await html2pdf().set({
-                            margin: [10, 10, 10, 10],
-                            filename: `Stundenbericht_${summary.name}_KW${getWeekNumber(selectedDate)}.pdf`,
-                            image: { type: 'jpeg', quality: 0.98 },
-                            html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
-                            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-                        }).from(element).save();
-                    } finally {
-                        setHourPrintData(null);
-                    }
-                }, 300);
+            // ── NEW: Reliable Hours PDF using jsPDF directly ──
+            const triggerHoursPDF = async (summary) => {
+                if (!window.jspdf) {
+                    alert('PDF-Bibliothek noch nicht geladen. Bitte warte einen Moment und versuche es erneut.');
+                    return;
+                }
+                setPdfLoading(true);
+                try {
+                    await generateHoursPDF(summary, selectedDate, hourLogs);
+                } catch(err) {
+                    console.error('PDF error:', err);
+                    alert('PDF-Fehler: ' + err.message);
+                } finally {
+                    setPdfLoading(false);
+                }
             };
 
             const stats = useMemo(() => {
@@ -1080,14 +1165,7 @@
             };
 
             if (view === 'calendar') {
-                return (
-                    <CalendarView
-                        onBack={() => setView('dashboard')}
-                        calEntries={calEntries}
-                        setCalEntries={setCalEntries}
-                        appId={appId}
-                    />
-                );
+                return <CalendarView onBack={() => setView('dashboard')} calEntries={calEntries} setCalEntries={setCalEntries} appId={appId} />;
             }
 
             const PrintArea = () => {
@@ -1140,83 +1218,6 @@
                 );
             };
 
-            const HourPrintArea = () => {
-                if (!hourPrintData) return null;
-                const now = new Date(selectedDate);
-                const dayOfWeek = now.getDay();
-                const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-                const startOfWeek = new Date(now.setDate(diff));
-                startOfWeek.setHours(0,0,0,0);
-                const endOfWeek = new Date(startOfWeek);
-                endOfWeek.setDate(endOfWeek.getDate() + 7);
-                const currentWeekLogs = hourPrintData.logs
-                    .filter(l => { const d = new Date(l.date); return d >= startOfWeek && d < endOfWeek && (parseFloat(l.hours) || 0) > 0; })
-                    .sort((a,b) => new Date(a.date) - new Date(b.date));
-                return (
-                    <div id="hour-print-area" style={{ position: 'fixed', left: '-5000px', top: 0, width: '210mm', backgroundColor: '#ffffff', zIndex: -100 }}>
-                        <div id="hour-print-area-content" style={{ padding: '25mm 20mm', backgroundColor: '#ffffff', color: '#000000', fontFamily: 'Inter, Arial, sans-serif' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2pt solid #000', paddingBottom: '5mm', marginBottom: '10mm' }}>
-                                <div>
-                                    <h1 style={{ fontSize: '24pt', fontWeight: '900', margin: 0, textTransform: 'uppercase', color: '#000000' }}>STUNDENBERICHT</h1>
-                                    <p style={{ fontSize: '12pt', fontWeight: 'bold', margin: 0, color: '#444444' }}>Montage Manager Pro</p>
-                                </div>
-                                <div style={{ textAlign: 'right' }}>
-                                    <p style={{ fontSize: '14pt', fontWeight: '900', margin: 0, color: '#000000' }}>KW {getWeekNumber(selectedDate)}</p>
-                                    <p style={{ fontSize: '10pt', margin: 0, color: '#666666' }}>{formatDate(startOfWeek.toISOString())} - {formatDate(new Date(endOfWeek.getTime()-1).toISOString())}</p>
-                                </div>
-                            </div>
-                            <div style={{ marginBottom: '10mm' }}>
-                                <p style={{ fontSize: '9pt', fontWeight: 'bold', color: '#888888', textTransform: 'uppercase', margin: '0 0 2mm 0' }}>Monteur</p>
-                                <h2 style={{ fontSize: '20pt', fontWeight: '900', margin: 0, textTransform: 'uppercase', color: '#000000' }}>{hourPrintData.name}</h2>
-                            </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '5mm', marginBottom: '10mm' }}>
-                                {[['Woche Total', `${hourPrintData.week}h`], ['Monat Total', `${hourPrintData.month}h`], ['Gesamt', `${hourPrintData.total}h`]].map(([label, val]) => (
-                                    <div key={label} style={{ border: '1pt solid #ddd', padding: '4mm', borderRadius: '3mm' }}>
-                                        <p style={{ fontSize: '8pt', fontWeight: 'bold', color: '#888', textTransform: 'uppercase', margin: '0 0 1mm 0' }}>{label}</p>
-                                        <p style={{ fontSize: '16pt', fontWeight: '900', margin: 0, color: '#000' }}>{val}</p>
-                                    </div>
-                                ))}
-                            </div>
-                            <h3 style={{ fontSize: '12pt', fontWeight: '900', textTransform: 'uppercase', marginBottom: '4mm', borderBottom: '1pt solid #ddd', paddingBottom: '2mm', color: '#000' }}>Detail-Einträge KW {getWeekNumber(selectedDate)}</h3>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '15mm' }}>
-                                <thead>
-                                    <tr style={{ borderBottom: '1.5pt solid #000' }}>
-                                        <th style={{ padding: '3mm 2mm', fontSize: '9pt', textTransform: 'uppercase', color: '#000', textAlign:'left' }}>Datum</th>
-                                        <th style={{ padding: '3mm 2mm', fontSize: '9pt', textTransform: 'uppercase', color: '#000', textAlign:'left' }}>Objekt</th>
-                                        <th style={{ padding: '3mm 2mm', fontSize: '9pt', textTransform: 'uppercase', color: '#000', textAlign:'right' }}>Stunden</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {currentWeekLogs.length > 0 ? currentWeekLogs.map((log, i) => (
-                                        <tr key={i} style={{ borderBottom: '0.5pt solid #eee' }}>
-                                            <td style={{ padding: '4mm 2mm', fontSize: '11pt', fontWeight: '700', color: '#000' }}>{formatDate(log.date)}</td>
-                                            <td style={{ padding: '4mm 2mm', fontSize: '11pt', color: '#000' }}>{log.address}</td>
-                                            <td style={{ padding: '4mm 2mm', fontSize: '12pt', fontWeight: '900', textAlign: 'right', color: '#000' }}>{log.hours}h</td>
-                                        </tr>
-                                    )) : (
-                                        <tr><td colSpan="3" style={{ padding: '10mm', textAlign: 'center', fontSize: '11pt', color: '#999', fontStyle: 'italic' }}>Keine Einträge diese Woche.</td></tr>
-                                    )}
-                                </tbody>
-                                <tfoot>
-                                    <tr style={{ borderTop: '1.5pt solid #000' }}>
-                                        <td colSpan="2" style={{ padding: '5mm 2mm', fontSize: '11pt', fontWeight: '900', textTransform: 'uppercase', color: '#000' }}>Wochen-Summe</td>
-                                        <td style={{ padding: '5mm 2mm', fontSize: '16pt', fontWeight: '900', textAlign: 'right', color: '#000' }}>{hourPrintData.week}h</td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                            <div style={{ marginTop: '20mm', display: 'flex', justifyContent: 'space-between' }}>
-                                <div style={{ width: '70mm', borderTop: '1pt solid #000', paddingTop: '2mm' }}>
-                                    <p style={{ fontSize: '8pt', textTransform: 'uppercase', fontWeight: 'bold', color: '#000' }}>Unterschrift Monteur</p>
-                                </div>
-                                <div style={{ width: '70mm', borderTop: '1pt solid #000', paddingTop: '2mm' }}>
-                                    <p style={{ fontSize: '8pt', textTransform: 'uppercase', fontWeight: 'bold', color: '#000' }}>Unterschrift Bauleitung</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                );
-            };
-
             // ── LOGIN ──
             if (view === 'login') return (
                 <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-slate-800">
@@ -1234,7 +1235,17 @@
             // ── HOURS ADMIN ──
             if (view === 'hours_admin') return (
                 <div className="min-h-screen bg-slate-800 pb-20 page-transition">
-                    <HourPrintArea />
+                    <PrintArea />
+                    
+                    {/* PDF Loading Overlay */}
+                    {pdfLoading && (
+                        <div className="pdf-loading-overlay">
+                            <div className="pdf-spinner"></div>
+                            <div style={{ color: '#fff', fontSize: 13, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 1 }}>PDF wird erstellt...</div>
+                            <div style={{ color: '#94a3b8', fontSize: 10, fontWeight: 600 }}>Bitte warten</div>
+                        </div>
+                    )}
+
                     <nav className="p-4 sticky top-0 z-40 glass border-b border-white/10 flex justify-between items-center">
                         <h2 className="text-sm font-black text-white italic uppercase">Stunden Dashboard</h2>
                         <button onClick={() => setView('login')} className="p-2 text-slate-400"><Icon name="log-out" size={18}/></button>
@@ -1269,7 +1280,14 @@
                                 <div key={summary.name} className="card-gradient p-5 rounded-2xl border border-white/5 flex flex-col gap-4">
                                     <div className="flex justify-between items-center">
                                         <h4 className="text-sm font-black text-white uppercase italic">{summary.name}</h4>
-                                        <button onClick={() => triggerHoursPDF(summary)} className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg"><Icon name="download" size={18}/></button>
+                                        <button 
+                                            onClick={() => triggerHoursPDF(summary)} 
+                                            className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg flex items-center gap-2"
+                                            title="PDF herunterladen"
+                                        >
+                                            <Icon name="download" size={18}/>
+                                            <span className="text-[9px] font-black uppercase">PDF</span>
+                                        </button>
                                     </div>
                                     <div className="space-y-3">
                                         <div className="bg-slate-900/50 p-3 rounded-xl">
