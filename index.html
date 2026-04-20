@@ -10,7 +10,6 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <!-- jsPDF for reliable programmatic PDF generation -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
     
@@ -56,6 +55,7 @@
         @keyframes slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         ::-webkit-scrollbar { display: none; }
         
+        /* badge-pulse nur noch im Kalender für Monteur-Pendenzen */
         .badge-pulse { animation: pulseGlow 2s infinite; }
         @keyframes pulseGlow { 
             0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.6); background-color: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.5); } 
@@ -71,33 +71,10 @@
             background: white;
         }
         
-        .pdf-page-break {
-            page-break-before: always;
-            clear: both;
-        }
-
-        .pdf-image-container {
-            display: block;
-            text-align: center;
-            width: 100%;
-            padding-top: 20px;
-            padding-bottom: 20px;
-        }
-
-        .pdf-image-container img {
-            max-width: 100%;
-            max-height: 230mm;
-            object-fit: contain;
-            display: block;
-            margin: 0 auto;
-        }
-
-        .pdf-first-page {
-            width: 100%;
-            display: block;
-            padding: 10mm;
-            box-sizing: border-box;
-        }
+        .pdf-page-break { page-break-before: always; clear: both; }
+        .pdf-image-container { display: block; text-align: center; width: 100%; padding-top: 20px; padding-bottom: 20px; }
+        .pdf-image-container img { max-width: 100%; max-height: 230mm; object-fit: contain; display: block; margin: 0 auto; }
+        .pdf-first-page { width: 100%; display: block; padding: 10mm; box-sizing: border-box; }
 
         .cal-col { border-right: 1px solid #e2e8f0; min-height: 120px; padding: 4px; display: flex; flex-direction: column; gap: 4px; }
         .cal-col:last-child { border-right: none; }
@@ -110,34 +87,88 @@
 
         .delete-mode-card { cursor: pointer !important; }
         .delete-mode-card:hover { opacity: 0.7 !important; outline: 2px solid #ef4444; }
-        
         .copy-mode-card { cursor: copy !important; }
         .copy-mode-card:hover { opacity: 0.8 !important; outline: 2px solid #f59e0b; }
-        
         .paste-target-col { background: rgba(245, 158, 11, 0.08) !important; }
         .paste-target-col:hover { background: rgba(245, 158, 11, 0.18) !important; cursor: copy; }
 
-        /* PDF loading overlay */
         .pdf-loading-overlay {
-            position: fixed;
-            inset: 0;
-            z-index: 9999;
+            position: fixed; inset: 0; z-index: 9999;
             background: rgba(15,23,42,0.92);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 16px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
         }
         .pdf-spinner {
-            width: 48px;
-            height: 48px;
+            width: 48px; height: 48px;
             border: 4px solid rgba(96,165,250,0.2);
             border-top: 4px solid #60a5fa;
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── ABGERECHNET STAMP ── */
+        .abgerechnet-stamp {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-25deg);
+            border: 3px solid rgba(16,185,129,0.7);
+            border-radius: 6px;
+            padding: 4px 10px;
+            color: rgba(16,185,129,0.85);
+            font-size: 11px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            pointer-events: none;
+            white-space: nowrap;
+            z-index: 10;
+            text-shadow: 0 0 8px rgba(16,185,129,0.4);
+            box-shadow: 0 0 10px rgba(16,185,129,0.15), inset 0 0 8px rgba(16,185,129,0.05);
+        }
+
+        /* PDF stamp for export */
+        .pdf-stamp {
+            display: inline-block;
+            border: 4px solid #059669;
+            border-radius: 8px;
+            padding: 4px 14px;
+            color: #059669;
+            font-size: 16px;
+            font-weight: 900;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            transform: rotate(-20deg);
+            opacity: 0.85;
+            font-family: 'Arial Black', sans-serif;
+        }
+
+        /* Billing panel tab styles */
+        .billing-tab {
+            flex: 1;
+            padding: 10px 16px;
+            font-size: 11px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+            cursor: pointer;
+            background: none;
+            border-top: none;
+            border-left: none;
+            border-right: none;
+            color: #94a3b8;
+        }
+        .billing-tab.active-pe {
+            color: #60a5fa;
+            border-bottom-color: #60a5fa;
+        }
+        .billing-tab.active-fa {
+            color: #f59e0b;
+            border-bottom-color: #f59e0b;
+        }
+        .billing-tab:hover:not(.active-pe):not(.active-fa) { color: #e2e8f0; }
     </style>
 </head>
 <body>
@@ -199,6 +230,11 @@
             return `${y}-${m}-${d}`;
         };
 
+        const cleanAuftragsNr = (raw) => {
+            if (!raw) return '';
+            return raw.trim().replace(/\/[A-Za-z]{1,5}$/, '').trim();
+        };
+
         const CARD_COLORS = ['#cfe2ff','#d1e7dd','#fff3cd','#f8d7da','#e2d9f3','#d0f4de','#fce4ec','#e8f5e9','#fff8e1','#e3f2fd','#f3e5f5','#e0f7fa'];
         const CARD_BORDER = ['#0d6efd','#198754','#ffc107','#dc3545','#6f42c1','#20c997','#e91e63','#4caf50','#ff9800','#2196f3','#9c27b0','#00bcd4'];
         const CARD_TEXT  = ['#052c65','#0a3622','#664d03','#58151c','#2c1654','#0a3622','#560a21','#1b5e20','#4d3700','#0d2b6e','#3b0764','#003d47'];
@@ -208,8 +244,214 @@
         const HOURS_PIN = "8888";
 
         // ─────────────────────────────────────────────────────────────
-        // RELIABLE PDF GENERATION using jsPDF directly
-        // This avoids all rendering/timing issues with html2pdf hidden elements
+        // FIX 3: PDF für Abrechnung — QUERFORMAT (landscape A4)
+        // ─────────────────────────────────────────────────────────────
+        const generateBillingPDF = (entries, firma, billedIds) => {
+            return new Promise((resolve) => {
+                const { jsPDF } = window.jspdf;
+                // LANDSCAPE A4: 297mm x 210mm
+                const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
+
+                const pageW = 297;  // landscape width
+                const pageH = 210;  // landscape height
+                const margin = 18;
+                const contentW = pageW - margin * 2;
+                let y = 22;
+
+                const firmaColor = firma === 'PE' ? [37, 99, 235] : [217, 119, 6];
+                const firmaLabel = firma === 'PE' ? 'PE-Fabrikation' : 'FA-Bauservice';
+
+                // Header bar
+                doc.setFillColor(...firmaColor);
+                doc.rect(0, 0, pageW, 14, 'F');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(8);
+                doc.setTextColor(255, 255, 255);
+                doc.text('FERTIGMONTAGE ABRECHNUNG', margin, 9);
+                doc.text(firmaLabel.toUpperCase(), pageW - margin, 9, { align: 'right' });
+
+                y = 24;
+
+                // Title
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(26);
+                doc.setTextColor(0, 0, 0);
+                doc.text('FERTIGMONTAGE', margin, y);
+                y += 8;
+                doc.setFontSize(14);
+                doc.setTextColor(...firmaColor);
+                doc.text(firmaLabel.toUpperCase(), margin, y);
+                y += 5;
+
+                // Date & count
+                doc.setFontSize(8);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(130, 130, 130);
+                doc.text(`Erstellt: ${new Date().toLocaleDateString('de-DE')}   |   Aufträge: ${entries.length}`, margin, y);
+                y += 3;
+                doc.setDrawColor(0, 0, 0);
+                doc.setLineWidth(0.6);
+                doc.line(margin, y, pageW - margin, y);
+                y += 8;
+
+                // Table columns — wider in landscape, full text fits
+                const col = {
+                    nr:      margin,
+                    datum:   margin + 9,
+                    kunde:   margin + 42,
+                    aufnr:   margin + 105,
+                    adress:  margin + 160,
+                    status:  pageW - margin - 20,
+                };
+
+                doc.setFillColor(245, 247, 250);
+                doc.rect(margin - 2, y - 5, contentW + 4, 9, 'F');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(7.5);
+                doc.setTextColor(80, 80, 80);
+                doc.text('#',            col.nr, y);
+                doc.text('DATUM',        col.datum, y);
+                doc.text('KUNDE',        col.kunde, y);
+                doc.text('AUFTRAGSNR.',  col.aufnr, y);
+                doc.text('ADRESSE',      col.adress, y);
+                doc.text('STATUS',       col.status, y, { align: 'right' });
+                y += 2;
+                doc.setDrawColor(200, 200, 200);
+                doc.setLineWidth(0.3);
+                doc.line(margin - 2, y, pageW - margin + 2, y);
+                y += 5;
+
+                // Rows — with more space for full text in landscape
+                entries.forEach((entry, i) => {
+                    if (y > pageH - 35) {
+                        doc.addPage();
+                        doc.setFillColor(...firmaColor);
+                        doc.rect(0, 0, pageW, 10, 'F');
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(7);
+                        doc.setTextColor(255, 255, 255);
+                        doc.text(firmaLabel.toUpperCase() + ' — FERTIGMONTAGE ABRECHNUNG (Fortsetzung)', margin, 7);
+                        y = 20;
+                    }
+
+                    const isAbgerechnet = billedIds.has(entry.id);
+                    const rowH = 13;
+
+                    if (i % 2 === 0) {
+                        doc.setFillColor(250, 251, 253);
+                        doc.rect(margin - 2, y - 5, contentW + 4, rowH, 'F');
+                    }
+
+                    // Nr
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(8);
+                    doc.setTextColor(0, 0, 0);
+                    doc.text(String(i + 1), col.nr, y);
+
+                    // Datum
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(8);
+                    doc.setTextColor(60, 60, 60);
+                    const dateStr = entry.finishedAt ? formatDate(entry.finishedAt) : formatDate(entry.createdAt || entry.deliveryDate);
+                    doc.text(dateStr, col.datum, y);
+
+                    // Kunde — FETT, more room in landscape (up to 30 chars)
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(8.5);
+                    doc.setTextColor(0, 0, 0);
+                    const kundeText = (entry.customer || '').length > 30 ? (entry.customer || '').substring(0,30)+'…' : (entry.customer || '');
+                    doc.text(kundeText, col.kunde, y);
+
+                    // Auftragsnr.
+                    const aufnrClean = cleanAuftragsNr(entry.auftragsNr || '');
+                    if (aufnrClean) {
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(8.5);
+                        doc.setTextColor(...firmaColor);
+                        const aufnrText = aufnrClean.length > 22 ? aufnrClean.substring(0,22)+'…' : aufnrClean;
+                        doc.text(aufnrText, col.aufnr, y);
+                    } else {
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(7.5);
+                        doc.setTextColor(160, 160, 160);
+                        doc.text('—', col.aufnr, y);
+                    }
+
+                    // Adresse — more room in landscape (up to 36 chars)
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(8);
+                    doc.setTextColor(60, 60, 60);
+                    const addrText = (entry.address || '').length > 36 ? (entry.address || '').substring(0,36)+'…' : (entry.address || '');
+                    doc.text(addrText, col.adress, y);
+
+                    // Status badge / stamp
+                    if (isAbgerechnet) {
+                        doc.setDrawColor(5, 150, 105);
+                        doc.setLineWidth(1.2);
+                        const sx = col.status - 22;
+                        const sy = y - 6;
+                        doc.roundedRect(sx, sy, 24, 8, 1.5, 1.5);
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(6.5);
+                        doc.setTextColor(5, 150, 105);
+                        doc.text('ABGERECHNET', sx + 12, sy + 5, { align: 'center' });
+                    } else {
+                        doc.setFont('helvetica', 'bold');
+                        doc.setFontSize(7.5);
+                        doc.setTextColor(22, 163, 74);
+                        doc.text('✓ FERTIG', col.status, y, { align: 'right' });
+                    }
+
+                    y += 2;
+                    doc.setDrawColor(230, 230, 230);
+                    doc.setLineWidth(0.15);
+                    doc.line(margin - 2, y, pageW - margin + 2, y);
+                    y += rowH - 2;
+                });
+
+                // Summary
+                y += 4;
+                if (y > pageH - 30) { doc.addPage(); y = 20; }
+                doc.setDrawColor(0, 0, 0);
+                doc.setLineWidth(0.5);
+                doc.line(margin, y, pageW - margin, y);
+                y += 6;
+                doc.setFillColor(248, 250, 252);
+                doc.rect(margin - 2, y - 1, contentW + 4, 14, 'F');
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(10);
+                doc.setTextColor(0, 0, 0);
+                doc.text(`Gesamt Aufträge: ${entries.length}`, margin + 2, y + 8);
+                const abrCount = entries.filter(e => billedIds.has(e.id)).length;
+                doc.setTextColor(...firmaColor);
+                doc.text(`Abgerechnet: ${abrCount}`, pageW - margin - 2, y + 8, { align: 'right' });
+                y += 22;
+
+                // Signature
+                if (y > pageH - 30) { doc.addPage(); y = 20; }
+                y = Math.max(y, pageH - 38);
+                doc.setDrawColor(0, 0, 0);
+                doc.setLineWidth(0.4);
+                doc.line(margin, y, margin + 65, y);
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(7.5);
+                doc.setTextColor(0, 0, 0);
+                doc.text('UNTERSCHRIFT', margin, y + 5);
+                doc.line(pageW - margin - 65, y, pageW - margin, y);
+                doc.text('DATUM', pageW - margin - 65, y + 5);
+
+                // Footer
+                doc.setFontSize(6.5);
+                doc.setTextColor(180, 180, 180);
+                doc.text(`Montage Manager Pro • ${firmaLabel} • ${new Date().toLocaleDateString('de-DE')}`, pageW / 2, pageH - 6, { align: 'center' });
+
+                doc.save(`Abrechnung_${firmaLabel.replace(/\s/g,'_')}_${new Date().toISOString().split('T')[0]}.pdf`);
+                resolve();
+            });
+        };
+
+        // ─────────────────────────────────────────────────────────────
+        // Hours PDF
         // ─────────────────────────────────────────────────────────────
         const generateHoursPDF = (summary, selectedDate, hourLogs) => {
             return new Promise((resolve) => {
@@ -218,12 +460,10 @@
                 
                 const now = new Date(selectedDate);
                 const dayOfWeek = now.getDay();
-                const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
                 const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1));
                 startOfWeek.setHours(0,0,0,0);
                 const endOfWeek = new Date(startOfWeek);
                 endOfWeek.setDate(endOfWeek.getDate() + 7);
-                const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
                 const kw = getWeekNumber(selectedDate);
                 const dateRangeStr = `${formatDate(toLocalDateStr(startOfWeek))} - ${formatDate(toLocalDateStr(new Date(endOfWeek.getTime() - 1)))}`;
@@ -235,202 +475,497 @@
                     })
                     .sort((a, b) => new Date(a.date) - new Date(b.date));
 
-                const pageW = 210;
-                const pageH = 297;
-                const margin = 20;
+                const pageW = 210, pageH = 297, margin = 20;
                 const contentW = pageW - margin * 2;
                 let y = 25;
 
-                // ── HEADER ──
-                doc.setDrawColor(0, 0, 0);
-                doc.setLineWidth(0.5);
-
-                // Title
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(26);
                 doc.setTextColor(0, 0, 0);
                 doc.text('STUNDENBERICHT', margin, y);
 
-                // KW top right
                 doc.setFontSize(14);
-                doc.setFont('helvetica', 'bold');
                 doc.text(`KW ${kw}`, pageW - margin, y - 4, { align: 'right' });
                 doc.setFontSize(9);
                 doc.setFont('helvetica', 'normal');
                 doc.setTextColor(100, 100, 100);
                 doc.text(dateRangeStr, pageW - margin, y + 3, { align: 'right' });
 
-                // Subtitle
                 doc.setFontSize(11);
-                doc.setFont('helvetica', 'normal');
                 doc.setTextColor(80, 80, 80);
                 doc.text('Montage Manager Pro', margin, y + 7);
 
                 y += 14;
+                doc.setDrawColor(0,0,0); doc.setLineWidth(0.5);
                 doc.line(margin, y, pageW - margin, y);
                 y += 10;
 
-                // ── MONTEUR NAME ──
-                doc.setFontSize(9);
-                doc.setFont('helvetica', 'bold');
-                doc.setTextColor(120, 120, 120);
+                doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(120, 120, 120);
                 doc.text('MONTEUR', margin, y);
                 y += 6;
-                doc.setFontSize(20);
-                doc.setFont('helvetica', 'bold');
-                doc.setTextColor(0, 0, 0);
+                doc.setFontSize(20); doc.setFont('helvetica', 'bold'); doc.setTextColor(0,0,0);
                 doc.text(summary.name.toUpperCase(), margin, y);
                 y += 14;
 
-                // ── STATS BOXES ──
-                const boxW = (contentW - 8) / 3;
-                const boxH = 18;
+                const boxW = (contentW - 8) / 3, boxH = 18;
                 const boxes = [
                     { label: 'WOCHE TOTAL', value: `${summary.week}h`, color: [37, 99, 235] },
                     { label: 'MONAT TOTAL', value: `${summary.month}h`, color: [16, 185, 129] },
-                    { label: 'GESAMT', value: `${summary.total}h`, color: [0, 0, 0] },
+                    { label: 'GESAMT',      value: `${summary.total}h`, color: [0, 0, 0] },
                 ];
                 boxes.forEach((box, i) => {
                     const bx = margin + i * (boxW + 4);
-                    doc.setDrawColor(220, 220, 220);
-                    doc.setLineWidth(0.3);
-                    doc.setFillColor(250, 250, 250);
+                    doc.setDrawColor(220,220,220); doc.setLineWidth(0.3);
+                    doc.setFillColor(250,250,250);
                     doc.roundedRect(bx, y, boxW, boxH, 2, 2, 'FD');
-                    doc.setFontSize(7);
-                    doc.setFont('helvetica', 'bold');
-                    doc.setTextColor(140, 140, 140);
+                    doc.setFontSize(7); doc.setFont('helvetica', 'bold'); doc.setTextColor(140,140,140);
                     doc.text(box.label, bx + 4, y + 6);
-                    doc.setFontSize(16);
-                    doc.setFont('helvetica', 'bold');
-                    doc.setTextColor(...box.color);
+                    doc.setFontSize(16); doc.setFont('helvetica', 'bold'); doc.setTextColor(...box.color);
                     doc.text(box.value, bx + 4, y + 14);
                 });
                 y += boxH + 12;
 
-                // ── WEEK DETAIL TABLE HEADER ──
-                doc.setFontSize(11);
-                doc.setFont('helvetica', 'bold');
-                doc.setTextColor(0, 0, 0);
+                doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(0,0,0);
                 doc.text(`DETAIL-EINTRÄGE KW ${kw}`, margin, y);
                 y += 3;
-                doc.setDrawColor(0, 0, 0);
-                doc.setLineWidth(0.4);
+                doc.setDrawColor(0,0,0); doc.setLineWidth(0.4);
                 doc.line(margin, y, pageW - margin, y);
                 y += 7;
 
-                // Table header row
-                const col1 = margin;
-                const col2 = margin + 35;
-                const col3 = pageW - margin;
-                doc.setFontSize(8);
-                doc.setFont('helvetica', 'bold');
-                doc.setTextColor(0, 0, 0);
-                doc.text('DATUM', col1, y);
-                doc.text('OBJEKT / ADRESSE', col2, y);
-                doc.text('STUNDEN', col3, y, { align: 'right' });
+                const col1 = margin, col2 = margin + 35, col3 = pageW - margin;
+                doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(0,0,0);
+                doc.text('DATUM', col1, y); doc.text('OBJEKT / ADRESSE', col2, y); doc.text('STUNDEN', col3, y, { align: 'right' });
                 y += 2;
-                doc.setDrawColor(180, 180, 180);
-                doc.setLineWidth(0.3);
+                doc.setDrawColor(180,180,180); doc.setLineWidth(0.3);
                 doc.line(margin, y, pageW - margin, y);
                 y += 6;
 
-                // Table rows
                 if (currentWeekLogs.length === 0) {
-                    doc.setFontSize(10);
-                    doc.setFont('helvetica', 'italic');
-                    doc.setTextColor(160, 160, 160);
+                    doc.setFontSize(10); doc.setFont('helvetica', 'italic'); doc.setTextColor(160,160,160);
                     doc.text('Keine Einträge diese Woche.', margin + contentW / 2, y + 6, { align: 'center' });
                     y += 16;
                 } else {
                     currentWeekLogs.forEach((log, i) => {
-                        // Check if we need a new page
-                        if (y > pageH - 50) {
-                            doc.addPage();
-                            y = 25;
-                        }
-                        
-                        const rowBg = i % 2 === 0;
-                        if (rowBg) {
-                            doc.setFillColor(248, 250, 252);
-                            doc.rect(margin - 1, y - 4, contentW + 2, 10, 'F');
-                        }
-                        
-                        doc.setFontSize(10);
-                        doc.setFont('helvetica', 'bold');
-                        doc.setTextColor(0, 0, 0);
+                        if (y > pageH - 50) { doc.addPage(); y = 25; }
+                        if (i % 2 === 0) { doc.setFillColor(248,250,252); doc.rect(margin - 1, y - 4, contentW + 2, 10, 'F'); }
+                        doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(0,0,0);
                         doc.text(formatDate(log.date), col1, y);
-                        
-                        doc.setFont('helvetica', 'normal');
-                        doc.setTextColor(40, 40, 40);
-                        // Truncate long address
-                        const addr = (log.address || '').length > 45 ? (log.address || '').substring(0, 45) + '…' : (log.address || '');
+                        doc.setFont('helvetica', 'normal'); doc.setTextColor(40,40,40);
+                        const addr = (log.address || '').length > 45 ? (log.address || '').substring(0,45)+'…' : (log.address || '');
                         doc.text(addr, col2, y);
-                        
-                        doc.setFont('helvetica', 'bold');
-                        doc.setTextColor(37, 99, 235);
+                        doc.setFont('helvetica', 'bold'); doc.setTextColor(37,99,235);
                         doc.text(`${log.hours}h`, col3, y, { align: 'right' });
-                        
                         y += 2;
-                        doc.setDrawColor(230, 230, 230);
-                        doc.setLineWidth(0.2);
+                        doc.setDrawColor(230,230,230); doc.setLineWidth(0.2);
                         doc.line(margin, y, pageW - margin, y);
                         y += 6;
                     });
                 }
 
-                // ── TOTAL ROW ──
                 y += 2;
-                doc.setDrawColor(0, 0, 0);
-                doc.setLineWidth(0.5);
+                doc.setDrawColor(0,0,0); doc.setLineWidth(0.5);
                 doc.line(margin, y - 2, pageW - margin, y - 2);
-                doc.setFillColor(245, 245, 245);
+                doc.setFillColor(245,245,245);
                 doc.rect(margin - 1, y - 1, contentW + 2, 12, 'F');
-                doc.setFontSize(11);
-                doc.setFont('helvetica', 'bold');
-                doc.setTextColor(0, 0, 0);
+                doc.setFontSize(11); doc.setFont('helvetica', 'bold'); doc.setTextColor(0,0,0);
                 doc.text('WOCHEN-SUMME', col1, y + 7);
-                doc.setFontSize(16);
-                doc.setTextColor(37, 99, 235);
+                doc.setFontSize(16); doc.setTextColor(37,99,235);
                 doc.text(`${summary.week}h`, col3, y + 8, { align: 'right' });
                 y += 20;
 
-                // ── SIGNATURES ──
-                // Check page space
-                if (y > pageH - 45) {
-                    doc.addPage();
-                    y = 25;
-                }
-
+                if (y > pageH - 45) { doc.addPage(); y = 25; }
                 y = Math.max(y, pageH - 45);
-                doc.setDrawColor(0, 0, 0);
-                doc.setLineWidth(0.4);
-                // Signature line 1
+                doc.setDrawColor(0,0,0); doc.setLineWidth(0.4);
                 doc.line(margin, y, margin + 65, y);
-                doc.setFontSize(8);
-                doc.setFont('helvetica', 'bold');
-                doc.setTextColor(0, 0, 0);
+                doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(0,0,0);
                 doc.text('UNTERSCHRIFT MONTEUR', margin, y + 5);
-                // Signature line 2
                 doc.line(pageW - margin - 65, y, pageW - margin, y);
                 doc.text('UNTERSCHRIFT BAULEITUNG', pageW - margin - 65, y + 5);
 
-                // ── FOOTER ──
-                doc.setFontSize(7);
-                doc.setFont('helvetica', 'normal');
-                doc.setTextColor(180, 180, 180);
+                doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(180,180,180);
                 doc.text(`Montage Manager Pro • Erstellt: ${new Date().toLocaleDateString('de-DE')}`, pageW / 2, pageH - 8, { align: 'center' });
 
-                // Save
-                const filename = `Stundenbericht_${summary.name}_KW${kw}.pdf`;
-                doc.save(filename);
+                doc.save(`Stundenbericht_${summary.name}_KW${kw}.pdf`);
                 resolve();
             });
         };
 
         // ─────────────────────────────────────────────────────────────
+        // BILLING PANEL — FIX 2: Löschen-Button für fertige Aufträge
+        // ─────────────────────────────────────────────────────────────
+        function BillingPanel({ finishedEntries, onClose, appId }) {
+            const [activeTab, setActiveTab] = useState('PE');
+            const [selected, setSelected] = useState(new Set());
+            const [pdfLoading, setPdfLoading] = useState(false);
+            const [billingData, setBillingData] = useState({});
+
+            useEffect(() => {
+                if (!window.FirebaseSDK) return;
+                const { db, collection, onSnapshot } = window.FirebaseSDK;
+                const unsub = onSnapshot(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'billing'),
+                    (snap) => {
+                        const data = {};
+                        snap.docs.forEach(d => { data[d.id] = d.data(); });
+                        setBillingData(data);
+                    }
+                );
+                return () => unsub();
+            }, [appId]);
+
+            const getBilledIds = () => {
+                const ids = new Set();
+                Object.entries(billingData).forEach(([id, d]) => {
+                    if (activeTab === 'PE' && d.PE) ids.add(id);
+                    if (activeTab === 'FA' && d.FA) ids.add(id);
+                });
+                return ids;
+            };
+            const billedIds = getBilledIds();
+
+            const toggleSelect = (id) => {
+                setSelected(prev => {
+                    const next = new Set(prev);
+                    if (next.has(id)) next.delete(id); else next.add(id);
+                    return next;
+                });
+            };
+
+            const selectAll = () => {
+                const unbilled = finishedEntries.filter(e => !billedIds.has(e.id)).map(e => e.id);
+                setSelected(new Set(unbilled));
+            };
+
+            const clearSelection = () => setSelected(new Set());
+
+            const markAsAbgerechnet = async () => {
+                if (selected.size === 0) return;
+                const { db, doc, setDoc } = window.FirebaseSDK;
+                const now = new Date().toISOString();
+                for (const id of selected) {
+                    const existing = billingData[id] || {};
+                    await setDoc(
+                        doc(db, 'artifacts', appId, 'public', 'data', 'billing', id),
+                        { ...existing, [activeTab]: true, [`${activeTab}date`]: now }
+                    );
+                }
+                setSelected(new Set());
+            };
+
+            const unmarkAbgerechnet = async (id) => {
+                if (!window.confirm('Abgerechnet-Markierung entfernen?')) return;
+                const { db, doc, setDoc } = window.FirebaseSDK;
+                const existing = billingData[id] || {};
+                await setDoc(
+                    doc(db, 'artifacts', appId, 'public', 'data', 'billing', id),
+                    { ...existing, [activeTab]: false, [`${activeTab}date`]: null }
+                );
+            };
+
+            // FIX 2: Fertig-Auftrag löschen
+            const deleteFinishedEntry = async (entry) => {
+                if (!window.confirm(`Auftrag "${entry.address}" wirklich löschen?`)) return;
+                const { db, doc, deleteDoc } = window.FirebaseSDK;
+                await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'finishedjobs', entry.id));
+                // auch billing-eintrag entfernen falls vorhanden
+                try {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'billing', entry.id));
+                } catch(e) {}
+            };
+
+            const exportPDF = async () => {
+                if (!window.jspdf) { alert('PDF-Bibliothek nicht geladen.'); return; }
+                setPdfLoading(true);
+                try { await generateBillingPDF(finishedEntries, activeTab, billedIds); }
+                catch(e) { alert('PDF Fehler: ' + e.message); }
+                finally { setPdfLoading(false); }
+            };
+
+            const firmaLabel  = activeTab === 'PE' ? 'PE-Fabrikation' : 'FA-Bauservice';
+            const firmaColor  = activeTab === 'PE' ? '#3b82f6' : '#f59e0b';
+            const firmaColorBg = activeTab === 'PE' ? 'rgba(59,130,246,0.12)' : 'rgba(245,158,11,0.12)';
+            const firmaBorder = activeTab === 'PE' ? 'rgba(59,130,246,0.35)' : 'rgba(245,158,11,0.35)';
+
+            const unbilledCount = finishedEntries.filter(e => !billedIds.has(e.id)).length;
+            const billedCount   = finishedEntries.filter(e => billedIds.has(e.id)).length;
+
+            return (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 200,
+                    background: 'rgba(10,15,28,0.92)',
+                    backdropFilter: 'blur(6px)',
+                    display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+                    padding: '16px', overflowY: 'auto',
+                }}>
+                    {pdfLoading && (
+                        <div className="pdf-loading-overlay" style={{ zIndex: 300 }}>
+                            <div className="pdf-spinner"></div>
+                            <div style={{ color: '#fff', fontSize: 13, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 1 }}>PDF wird erstellt...</div>
+                        </div>
+                    )}
+
+                    <div style={{
+                        width: '100%', maxWidth: 680,
+                        background: '#1a2234',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: 24, overflow: 'hidden',
+                        marginTop: 8,
+                        boxShadow: '0 30px 80px rgba(0,0,0,0.7)',
+                    }}>
+                        {/* Panel Header */}
+                        <div style={{
+                            background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+                            borderBottom: '1px solid rgba(255,255,255,0.08)',
+                            padding: '18px 22px 0 22px',
+                        }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                                <div>
+                                    <div style={{ fontSize: 9, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 2, color: '#64748b', marginBottom: 4 }}>Abrechnungsliste</div>
+                                    <h2 style={{ color: '#fff', fontSize: 18, fontWeight: 900, fontStyle: 'italic', margin: 0, textTransform: 'uppercase' }}>Fertig Montiert</h2>
+                                    <div style={{ fontSize: 9, color: '#64748b', marginTop: 3 }}>
+                                        {finishedEntries.length} Aufträge gesamt &nbsp;•&nbsp;
+                                        <span style={{ color: '#10b981' }}>{billedCount} Abgerechnet</span> &nbsp;•&nbsp;
+                                        <span style={{ color: '#f59e0b' }}>{unbilledCount} Offen</span>
+                                    </div>
+                                </div>
+                                <button onClick={onClose} style={{
+                                    background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)',
+                                    borderRadius: 10, width: 34, height: 34,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    cursor: 'pointer', color: '#94a3b8',
+                                }}><Icon name="x" size={16}/></button>
+                            </div>
+                            <div style={{ display: 'flex', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                                <button className={`billing-tab ${activeTab === 'PE' ? 'active-pe' : ''}`} onClick={() => { setActiveTab('PE'); setSelected(new Set()); }}>
+                                    <span style={{ marginRight: 6 }}>🔵</span> PE-Fabrikation
+                                </button>
+                                <button className={`billing-tab ${activeTab === 'FA' ? 'active-fa' : ''}`} onClick={() => { setActiveTab('FA'); setSelected(new Set()); }}>
+                                    <span style={{ marginRight: 6 }}>🟡</span> FA-Bauservice
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Firma badge */}
+                        <div style={{
+                            margin: '14px 22px 0 22px', padding: '10px 14px',
+                            background: firmaColorBg, border: `1px solid ${firmaBorder}`,
+                            borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10,
+                        }}>
+                            <div style={{
+                                width: 36, height: 36, borderRadius: '50%',
+                                background: firmaColor, opacity: 0.9,
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 13, fontWeight: 900, color: '#fff',
+                            }}>{activeTab}</div>
+                            <div>
+                                <div style={{ color: '#fff', fontSize: 11, fontWeight: 900, textTransform: 'uppercase' }}>{firmaLabel}</div>
+                                <div style={{ color: '#94a3b8', fontSize: 9, marginTop: 1 }}>
+                                    Unabhängige Abrechnung &nbsp;·&nbsp; {finishedEntries.filter(e => billedIds.has(e.id)).length} abgerechnet
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Action Bar */}
+                        <div style={{
+                            display: 'flex', gap: 8, padding: '12px 22px',
+                            borderBottom: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap',
+                        }}>
+                            <button onClick={selectAll} style={{
+                                padding: '7px 14px', background: 'rgba(255,255,255,0.07)',
+                                border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
+                                color: '#cbd5e1', fontSize: 9, fontWeight: 900, textTransform: 'uppercase', cursor: 'pointer',
+                            }}>Alle wählen ({unbilledCount})</button>
+                            {selected.size > 0 && (
+                                <>
+                                    <button onClick={clearSelection} style={{
+                                        padding: '7px 14px', background: 'rgba(255,255,255,0.05)',
+                                        border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8,
+                                        color: '#94a3b8', fontSize: 9, fontWeight: 900, textTransform: 'uppercase', cursor: 'pointer',
+                                    }}>Auswahl aufheben</button>
+                                    <button onClick={markAsAbgerechnet} style={{
+                                        padding: '7px 16px', background: '#10b981', border: 'none',
+                                        borderRadius: 8, color: '#fff', fontSize: 9, fontWeight: 900,
+                                        textTransform: 'uppercase', cursor: 'pointer',
+                                        display: 'flex', alignItems: 'center', gap: 6,
+                                        boxShadow: '0 4px 12px rgba(16,185,129,0.3)',
+                                    }}>
+                                        <Icon name="check-circle" size={13}/>{selected.size} als ABGERECHNET markieren
+                                    </button>
+                                </>
+                            )}
+                            <button onClick={exportPDF} style={{
+                                padding: '7px 14px',
+                                background: activeTab === 'PE' ? 'rgba(59,130,246,0.2)' : 'rgba(245,158,11,0.2)',
+                                border: `1px solid ${firmaBorder}`, borderRadius: 8,
+                                color: firmaColor, fontSize: 9, fontWeight: 900, textTransform: 'uppercase', cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', gap: 6, marginLeft: 'auto',
+                            }}><Icon name="download" size={13}/>PDF Export</button>
+                        </div>
+
+                        {/* Entries List */}
+                        <div style={{ maxHeight: '52vh', overflowY: 'auto', padding: '8px 22px 22px 22px' }}>
+                            {finishedEntries.length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '48px 0', color: '#475569' }}>
+                                    <div style={{ fontSize: 36, marginBottom: 10 }}>✓</div>
+                                    <div style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 1 }}>Keine fertig montierten Aufträge</div>
+                                    <div style={{ fontSize: 9, marginTop: 6, color: '#334155' }}>Aufträge erscheinen hier sobald Monteure sie als „Fertig montiert" kennzeichnen.</div>
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingTop: 8 }}>
+                                    {finishedEntries.map((entry) => {
+                                        const isAbgerechnet = billedIds.has(entry.id);
+                                        const isSelected = selected.has(entry.id);
+                                        const billedDate = billingData[entry.id]?.[`${activeTab}date`];
+                                        const aufnrClean = cleanAuftragsNr(entry.auftragsNr || '');
+
+                                        return (
+                                            <div key={entry.id} onClick={() => !isAbgerechnet && toggleSelect(entry.id)} style={{
+                                                position: 'relative',
+                                                background: isAbgerechnet ? 'rgba(16,185,129,0.07)' : isSelected ? (activeTab === 'PE' ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)') : 'rgba(255,255,255,0.04)',
+                                                border: isAbgerechnet ? '1px solid rgba(16,185,129,0.3)' : isSelected ? `1px solid ${firmaColor}` : '1px solid rgba(255,255,255,0.07)',
+                                                borderRadius: 12, padding: '12px 14px',
+                                                cursor: isAbgerechnet ? 'default' : 'pointer',
+                                                transition: 'all 0.15s ease', overflow: 'hidden',
+                                            }}>
+                                                {isAbgerechnet && <div className="abgerechnet-stamp">✓ Abgerechnet</div>}
+
+                                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                                                    {!isAbgerechnet && (
+                                                        <div style={{
+                                                            width: 20, height: 20, borderRadius: 6,
+                                                            border: isSelected ? `2px solid ${firmaColor}` : '2px solid rgba(255,255,255,0.2)',
+                                                            background: isSelected ? firmaColor : 'transparent',
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            flexShrink: 0, marginTop: 2, transition: 'all 0.15s',
+                                                        }}>
+                                                            {isSelected && <Icon name="check" size={12} className="text-white"/>}
+                                                        </div>
+                                                    )}
+                                                    {isAbgerechnet && (
+                                                        <div style={{
+                                                            width: 20, height: 20, borderRadius: 6,
+                                                            background: 'rgba(16,185,129,0.3)',
+                                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                            flexShrink: 0, marginTop: 2,
+                                                        }}><Icon name="check" size={12} className="text-emerald-400"/></div>
+                                                    )}
+
+                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                                                            <div style={{ minWidth: 0 }}>
+                                                                <div style={{
+                                                                    color: '#fff', fontSize: 11, fontWeight: 900,
+                                                                    textTransform: 'uppercase', fontStyle: 'italic',
+                                                                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                                                    opacity: isAbgerechnet ? 0.5 : 1,
+                                                                }}>{entry.address}</div>
+                                                                <div style={{
+                                                                    color: '#60a5fa', fontSize: 9, fontWeight: 700,
+                                                                    textTransform: 'uppercase', marginTop: 2,
+                                                                    opacity: isAbgerechnet ? 0.5 : 1,
+                                                                }}>
+                                                                    {entry.customer}
+                                                                    {entry.houseInfo ? <span style={{ color: '#64748b' }}> · {entry.houseInfo}</span> : null}
+                                                                </div>
+                                                                {aufnrClean && (
+                                                                    <div style={{
+                                                                        marginTop: 4,
+                                                                        display: 'inline-block',
+                                                                        background: isAbgerechnet ? 'rgba(16,185,129,0.1)' : (activeTab === 'PE' ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)'),
+                                                                        border: `1px solid ${isAbgerechnet ? 'rgba(16,185,129,0.3)' : firmaBorder}`,
+                                                                        borderRadius: 6, padding: '2px 8px',
+                                                                        color: isAbgerechnet ? '#10b981' : firmaColor,
+                                                                        fontSize: 10, fontWeight: 900,
+                                                                        letterSpacing: 0.5,
+                                                                        opacity: isAbgerechnet ? 0.6 : 1,
+                                                                    }}>
+                                                                        # {aufnrClean}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div style={{ flexShrink: 0, textAlign: 'right', display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+                                                                <div style={{
+                                                                    fontSize: 9, fontWeight: 900, textTransform: 'uppercase',
+                                                                    color: isAbgerechnet ? '#10b981' : '#22c55e',
+                                                                    background: isAbgerechnet ? 'rgba(16,185,129,0.12)' : 'rgba(34,197,94,0.1)',
+                                                                    border: `1px solid ${isAbgerechnet ? 'rgba(16,185,129,0.4)' : 'rgba(34,197,94,0.3)'}`,
+                                                                    borderRadius: 6, padding: '2px 7px',
+                                                                }}>{isAbgerechnet ? '✓ Abgerechnet' : '✓ Fertig'}</div>
+                                                                {entry.finishedAt && (
+                                                                    <div style={{ color: '#475569', fontSize: 8 }}>{formatDate(entry.finishedAt)}</div>
+                                                                )}
+                                                                {/* FIX 2: Löschen-Button */}
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); deleteFinishedEntry(entry); }}
+                                                                    title="Auftrag löschen"
+                                                                    style={{
+                                                                        background: 'rgba(239,68,68,0.15)',
+                                                                        border: '1px solid rgba(239,68,68,0.3)',
+                                                                        borderRadius: 6, padding: '3px 8px',
+                                                                        color: '#f87171', fontSize: 8, fontWeight: 900,
+                                                                        textTransform: 'uppercase', cursor: 'pointer',
+                                                                        display: 'flex', alignItems: 'center', gap: 4,
+                                                                    }}
+                                                                >
+                                                                    <Icon name="trash-2" size={10}/>Löschen
+                                                                </button>
+                                                            </div>
+                                                        </div>
+
+                                                        {isAbgerechnet && billedDate && (
+                                                            <div style={{
+                                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                                marginTop: 8, paddingTop: 7,
+                                                                borderTop: '1px solid rgba(16,185,129,0.15)',
+                                                            }}>
+                                                                <div style={{ fontSize: 8, color: '#10b981', fontWeight: 700 }}>
+                                                                    Abgerechnet am {formatDate(billedDate)} ({firmaLabel})
+                                                                </div>
+                                                                <button onClick={(e) => { e.stopPropagation(); unmarkAbgerechnet(entry.id); }} style={{
+                                                                    background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)',
+                                                                    borderRadius: 6, padding: '2px 8px',
+                                                                    color: '#f87171', fontSize: 8, fontWeight: 900,
+                                                                    textTransform: 'uppercase', cursor: 'pointer',
+                                                                }}>Rückgängig</button>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Bottom selection summary */}
+                        {selected.size > 0 && (
+                            <div style={{
+                                borderTop: '1px solid rgba(255,255,255,0.08)', padding: '12px 22px',
+                                background: activeTab === 'PE' ? 'rgba(59,130,246,0.1)' : 'rgba(245,158,11,0.1)',
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            }}>
+                                <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 700 }}>
+                                    <span style={{ color: firmaColor, fontWeight: 900 }}>{selected.size}</span> Aufträge ausgewählt für {firmaLabel}
+                                </div>
+                                <button onClick={markAsAbgerechnet} style={{
+                                    padding: '9px 20px', background: '#10b981', border: 'none',
+                                    borderRadius: 10, color: '#fff', fontSize: 10, fontWeight: 900,
+                                    textTransform: 'uppercase', cursor: 'pointer',
+                                    boxShadow: '0 4px 14px rgba(16,185,129,0.4)',
+                                    display: 'flex', alignItems: 'center', gap: 8,
+                                }}><Icon name="stamp" size={14}/>ABGERECHNET Stempeln</button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // ─────────────────────────────────────────────────────────────
         // CALENDAR VIEW
         // ─────────────────────────────────────────────────────────────
-        function CalendarView({ onBack, calEntries, setCalEntries, appId }) {
+        function CalendarView({ onBack, calEntries, setCalEntries, appId, finishedObjects }) {
             const [calWeek, setCalWeek] = useState(new Date());
             const [editCalEntry, setEditCalEntry] = useState(null);
             const [showCalImport, setShowCalImport] = useState(false);
@@ -439,7 +974,7 @@
             const [showCalPdfModal, setShowCalPdfModal] = useState(null);
             const [deleteMode, setDeleteMode] = useState(false);
             const [copyEntry, setCopyEntry] = useState(null);
-            const [pasteTargetDay, setPasteTargetDay] = useState(null);
+            const [showBillingPanel, setShowBillingPanel] = useState(false);
 
             const days = getCalWeekDays(calWeek);
             const DAY_NAMES = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
@@ -447,8 +982,7 @@
             const entriesForDay = useCallback((dayStr) => {
                 return calEntries.filter(e => {
                     if (!e.deliveryDate) return false;
-                    const storedDatePart = e.deliveryDate.substring(0, 10);
-                    return storedDatePart === dayStr;
+                    return e.deliveryDate.substring(0, 10) === dayStr;
                 });
             }, [calEntries]);
 
@@ -514,36 +1048,56 @@
                 const weekDayMap = {};
                 DAY_NAMES.forEach((name, i) => { weekDayMap[name.toLowerCase()] = days[i]; });
                 weekDayMap['sonntag'] = null;
+
                 for (let line of lines) {
                     const trimmed = line.trim();
                     if (!trimmed) continue;
+
                     const dayMatch = trimmed.match(dayRegex);
                     if (dayMatch) {
                         const dayNameLower = dayMatch[1].toLowerCase();
-                        if (weekDayMap[dayNameLower]) {
-                            currentDay = weekDayMap[dayNameLower];
-                        } else {
+                        if (weekDayMap[dayNameLower]) currentDay = weekDayMap[dayNameLower];
+                        else {
                             const [d,m,y] = dayMatch[2].split('.');
                             currentDay = new Date(parseInt(y), parseInt(m)-1, parseInt(d));
                         }
                         continue;
                     }
+
                     if (!currentDay) continue;
                     const rawParts = trimmed.split('/');
                     if (rawParts.length < 3) continue;
                     const p = rawParts.map(x => x.trim());
-                    if (p[0].toUpperCase() !== 'LIEFERUNG') continue;
-                    const customer = p[1] || '';
-                    const address = p[2] || '';
-                    const memo = p[3] || '';
-                    const auftragsNr = p.slice(4).join('/').trim();
+
+                    const firstUpper = p[0].toUpperCase();
+                    let customer, address, memo, auftragsNrRaw;
+
+                    if (firstUpper === 'LIEFERUNG' || firstUpper === 'MONTAGE' || firstUpper === 'SERVICE') {
+                        customer     = p[1] || '';
+                        address      = p[2] || '';
+                        memo         = p[3] || '';
+                        auftragsNrRaw = p.slice(4).join('/').trim();
+                    } else {
+                        customer     = p[0] || '';
+                        address      = p[1] || '';
+                        memo         = p[2] || '';
+                        auftragsNrRaw = p.slice(3).join('/').trim();
+                    }
+
                     if (!customer && !address) continue;
+
+                    const auftragsNr = cleanAuftragsNr(auftragsNrRaw);
                     const eleMatch = memo.match(/(\d+)\s*ELE/i);
                     const target = eleMatch ? parseInt(eleMatch[1]) : 0;
                     const id = `cal-${crypto.randomUUID()}`;
-                    const deliveryDateStr = toLocalDateStr(currentDay);
-                    newEntries.push({ id, entryType: 'LIEFERUNG', customer, address, memo, auftragsNr, target, deliveryDate: deliveryDateStr, image: null, createdAt: new Date().toISOString() });
+                    newEntries.push({
+                        id, entryType: 'LIEFERUNG',
+                        customer, address, memo, auftragsNr, target,
+                        deliveryDate: toLocalDateStr(currentDay),
+                        image: null, createdAt: new Date().toISOString()
+                    });
                 }
+
                 if (newEntries.length > 0) {
                     const { db, doc, setDoc } = window.FirebaseSDK;
                     for (const e of newEntries) {
@@ -566,7 +1120,6 @@
                         image: { type:'jpeg', quality:0.98 },
                         html2canvas: { scale:2, useCORS:true, backgroundColor:'#ffffff' },
                         jsPDF: { unit:'mm', format:'a4', orientation:'portrait' },
-                        pagebreak: { mode: ['css'] }
                     }).from(el).save().then(() => setShowCalPdfModal(null));
                 }, 300);
             };
@@ -592,7 +1145,6 @@
                 const newEntry = { ...copyEntry, id, deliveryDate: dayStr, createdAt: new Date().toISOString() };
                 await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'calentries', id), newEntry);
                 setCopyEntry(null);
-                setPasteTargetDay(null);
             };
 
             const defaultNewDate = toLocalDateStr(days[0]);
@@ -600,13 +1152,14 @@
 
             return (
                 <div style={{ minHeight:'100vh', background:'#f1f5f9', display:'flex', flexDirection:'column' }}>
+                    {/* Hidden PDF areas */}
                     <div style={{ position:'absolute', left:'-9999px', top:0 }}>
                         {showCalPdfModal && (
                             <div id="cal-single-pdf-content" style={{ padding:'15mm', background:'#fff', color:'#000', fontFamily:'Inter,Arial,sans-serif', width:'190mm' }}>
                                 <h1 style={{ fontSize:'22pt', fontWeight:900, borderBottom:'2pt solid #000', paddingBottom:'4mm', marginBottom:'6mm', textTransform:'uppercase' }}>Auftrag</h1>
                                 <table style={{ width:'100%', marginBottom:'8mm', fontSize:'11pt' }}>
                                     <tbody>
-                                        <tr><td style={{ color:'#888', fontWeight:'bold', width:'35mm', paddingBottom:'3mm' }}>Auftragsnr.</td><td style={{ fontWeight:900 }}>{showCalPdfModal.auftragsNr || '—'}</td></tr>
+                                        <tr><td style={{ color:'#888', fontWeight:'bold', width:'35mm', paddingBottom:'3mm' }}>Auftragsnr.</td><td style={{ fontWeight:900, color:'#1a1a1a' }}>{cleanAuftragsNr(showCalPdfModal.auftragsNr || '') || '—'}</td></tr>
                                         <tr><td style={{ color:'#888', fontWeight:'bold', paddingBottom:'3mm' }}>Kunde</td><td style={{ fontWeight:'bold' }}>{showCalPdfModal.customer}</td></tr>
                                         <tr><td style={{ color:'#888', fontWeight:'bold', paddingBottom:'3mm' }}>Adresse</td><td>{showCalPdfModal.address}</td></tr>
                                         <tr><td style={{ color:'#888', fontWeight:'bold', paddingBottom:'3mm' }}>Datum</td><td>{formatDate(showCalPdfModal.deliveryDate)}</td></tr>
@@ -616,7 +1169,6 @@
                                 </table>
                                 {showCalPdfModal.image && (
                                     <div style={{ textAlign:'center', marginTop:'8mm' }}>
-                                        <p style={{ fontSize:'8pt', color:'#888', marginBottom:'4mm', fontWeight:'bold', textTransform:'uppercase' }}>Foto</p>
                                         <img src={showCalPdfModal.image} style={{ maxWidth:'100%', maxHeight:'160mm', objectFit:'contain', display:'block', margin:'0 auto' }} />
                                     </div>
                                 )}
@@ -643,9 +1195,10 @@
                                             </div>
                                             {dayEnt.map((e,ei) => {
                                                 const ci = colorIndex[e.id] || 0;
+                                                const aufnr = cleanAuftragsNr(e.auftragsNr || '');
                                                 return (
                                                     <div key={ei} style={{ background:CARD_COLORS[ci], borderLeft:`2pt solid ${CARD_BORDER[ci]}`, borderRadius:'4pt', padding:'2mm 3mm', marginBottom:'2mm' }}>
-                                                        {e.auftragsNr && <div style={{ fontSize:'5.5pt', color:CARD_TEXT[ci], fontWeight:900, opacity:0.7, marginBottom:'1mm' }}>{e.auftragsNr}</div>}
+                                                        {aufnr && <div style={{ fontSize:'5.5pt', color:CARD_TEXT[ci], fontWeight:900, opacity:0.7, marginBottom:'1mm' }}>{aufnr}</div>}
                                                         <div style={{ fontSize:'7pt', fontWeight:900, color:CARD_TEXT[ci], lineHeight:1.2, marginBottom:'1mm' }}>{e.customer}</div>
                                                         <div style={{ fontSize:'6pt', color:CARD_TEXT[ci], opacity:0.8, lineHeight:1.2, marginBottom:'1mm' }}>{e.address}</div>
                                                         <div style={{ fontSize:'6pt', color:CARD_TEXT[ci], opacity:0.7, lineHeight:1.2 }}>{e.memo}</div>
@@ -660,6 +1213,12 @@
                         </div>
                     </div>
 
+                    {/* Billing Panel */}
+                    {showBillingPanel && (
+                        <BillingPanel finishedEntries={finishedObjects} onClose={() => setShowBillingPanel(false)} appId={appId} />
+                    )}
+
+                    {/* Top Bar */}
                     <div style={{ background:'#1e293b', padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, zIndex:40, borderBottom:'2px solid #334155', flexShrink:0 }}>
                         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                             <button onClick={onBack} style={{ background:'#334155', border:'none', borderRadius:10, width:34, height:34, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
@@ -673,6 +1232,27 @@
                             </div>
                         </div>
                         <div style={{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' }}>
+                            {/* FERTIG MONTIERT BUTTON im Kalender — mit Badge */}
+                            <button onClick={() => setShowBillingPanel(true)} style={{
+                                background: 'linear-gradient(135deg, #10b981, #059669)',
+                                border: '1px solid rgba(16,185,129,0.5)',
+                                borderRadius: 10, padding: '6px 14px',
+                                color: '#fff', fontSize: 9, fontWeight: 900,
+                                textTransform: 'uppercase', letterSpacing: 1,
+                                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6,
+                                boxShadow: '0 4px 14px rgba(16,185,129,0.35)',
+                            }}>
+                                <Icon name="clipboard-check" size={13}/>
+                                Fertig Montiert
+                                {finishedObjects.length > 0 && (
+                                    <span style={{
+                                        background: 'rgba(255,255,255,0.25)',
+                                        borderRadius: 20, padding: '1px 6px',
+                                        fontSize: 8, fontWeight: 900,
+                                    }}>{finishedObjects.length}</span>
+                                )}
+                            </button>
+
                             <button onClick={() => { const d=new Date(calWeek); d.setDate(d.getDate()-7); setCalWeek(d); }} style={{ background:'#334155', border:'none', borderRadius:8, width:30, height:30, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
                                 <Icon name="chevron-left" size={14} className="text-blue-400"/>
                             </button>
@@ -707,6 +1287,7 @@
                         </div>
                     )}
 
+                    {/* Calendar Grid */}
                     <div style={{ flex:1, overflowX:'auto', overflowY:'auto' }}>
                         <div style={{ minWidth:760 }}>
                             <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', borderBottom:'2px solid #000', background:'#1e293b' }}>
@@ -732,6 +1313,7 @@
                                             )}
                                             {dayEnt.map((e) => {
                                                 const ci = colorIndex[e.id] || 0;
+                                                const aufnr = cleanAuftragsNr(e.auftragsNr || '');
                                                 return (
                                                     <div key={e.id} className={`cal-card-item${deleteMode ? ' delete-mode-card' : ''}`} style={{ background:CARD_COLORS[ci], borderLeftColor:CARD_BORDER[ci], color:CARD_TEXT[ci], cursor:'pointer' }}
                                                         onClick={(ev) => {
@@ -743,7 +1325,7 @@
                                                         {e.image && <div className="green-dot"></div>}
                                                         {deleteMode && <div style={{ position:'absolute', top:3, left:3, background:'#ef4444', borderRadius:'50%', width:14, height:14, display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, color:'#fff', fontWeight:900 }}>✕</div>}
                                                         <div style={{ fontSize:8, fontWeight:900, letterSpacing:1, textTransform:'uppercase', marginBottom:3, padding:'1px 5px', background:CARD_BORDER[ci], color:'#fff', borderRadius:2, display:'inline-block', marginLeft: deleteMode ? 16 : 0 }}>{e.entryType || 'LIEFERUNG'}</div>
-                                                        {e.auftragsNr && <div style={{ fontSize:8, fontWeight:900, opacity:0.75, marginBottom:2, textTransform:'uppercase', paddingRight: e.image ? 10 : 0 }}>{e.auftragsNr}</div>}
+                                                        {aufnr && <div style={{ fontSize:8, fontWeight:900, opacity:0.75, marginBottom:2, textTransform:'uppercase', paddingRight: e.image ? 10 : 0 }}>{aufnr}</div>}
                                                         <div style={{ fontSize:10, fontWeight:900, lineHeight:1.3, marginBottom:2, textTransform:'uppercase' }}>{e.customer}</div>
                                                         <div style={{ fontSize:9, fontWeight:700, lineHeight:1.3, marginBottom:2, opacity:0.85 }}>{e.address}</div>
                                                         {e.memo && <div style={{ fontSize:8, lineHeight:1.3, opacity:0.75 }}>{e.memo}</div>}
@@ -763,6 +1345,7 @@
                         </div>
                     </div>
 
+                    {/* Edit Entry Modal */}
                     {editCalEntry && (
                         <div style={{ position:'fixed', inset:0, zIndex:50, background:'rgba(15,23,42,0.96)', display:'flex', alignItems:'center', justifyContent:'center', padding:16, overflowY:'auto' }}>
                             <div style={{ width:'100%', maxWidth:400, background:'rgba(51,65,85,0.98)', backdropFilter:'blur(12px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:24, padding:24, display:'flex', flexDirection:'column', gap:12 }}>
@@ -772,7 +1355,7 @@
                                 <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }} placeholder="Kunde *" value={editCalEntry.customer} onChange={e => setEditCalEntry({...editCalEntry, customer:e.target.value})}/>
                                 <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }} placeholder="Adresse" value={editCalEntry.address} onChange={e => setEditCalEntry({...editCalEntry, address:e.target.value})}/>
                                 <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }} placeholder="Memo / Hausinfo" value={editCalEntry.memo} onChange={e => setEditCalEntry({...editCalEntry, memo:e.target.value})}/>
-                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }} placeholder="Auftragsnr." value={editCalEntry.auftragsNr} onChange={e => setEditCalEntry({...editCalEntry, auftragsNr:e.target.value})}/>
+                                <input style={{ width:'100%', padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }} placeholder="Auftragsnr. (z.B. 260368365)" value={editCalEntry.auftragsNr} onChange={e => setEditCalEntry({...editCalEntry, auftragsNr:e.target.value})}/>
                                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
                                     <input type="number" style={{ padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }} placeholder="ELE" value={editCalEntry.target || ''} onChange={e => setEditCalEntry({...editCalEntry, target:e.target.value})}/>
                                     <input type="date" style={{ padding:'10px 12px', borderRadius:10, background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', color:'#fff', fontSize:11, boxSizing:'border-box' }} value={editCalEntry.deliveryDate?.substring(0,10) || ''} onChange={e => setEditCalEntry({...editCalEntry, deliveryDate: e.target.value})}/>
@@ -797,11 +1380,13 @@
                         </div>
                     )}
 
+                    {/* Import Modal */}
                     {showCalImport && (
                         <div style={{ position:'fixed', inset:0, zIndex:50, background:'rgba(15,23,42,0.98)', padding:24, display:'flex', flexDirection:'column' }}>
-                            <div style={{ color:'#60a5fa', fontSize:10, fontWeight:900, textTransform:'uppercase', letterSpacing:1, marginBottom:4 }}>Import → KW {getWeekNumber(calWeek)} ({formatDate(toLocalDateStr(days[0]))} – {formatDate(toLocalDateStr(days[5]))})</div>
-                            <div style={{ color:'#94a3b8', fontSize:9, fontWeight:700, marginBottom:8 }}>Format: Montag 20.04.2026 → LIEFERUNG / Kunde / Adresse / Memo / AuftragsNr</div>
-                            <textarea style={{ flex:1, width:'100%', background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', padding:16, borderRadius:12, fontSize:11, color:'#fff', fontFamily:'monospace', resize:'none', boxSizing:'border-box' }} placeholder={"Montag 20.04.2026 (3)\nLIEFERUNG / E.O. Knecht AG / Segelhofstrasse, 5405 Dättwil AG / Haus A12 47 ELE / 251266654/SLI"} value={calImportText} onChange={e => setCalImportText(e.target.value)} />
+                            <div style={{ color:'#60a5fa', fontSize:10, fontWeight:900, textTransform:'uppercase', letterSpacing:1, marginBottom:4 }}>Import → KW {getWeekNumber(calWeek)}</div>
+                            <div style={{ color:'#94a3b8', fontSize:9, fontWeight:700, marginBottom:2 }}>Neues Format: <span style={{color:'#60a5fa'}}>Montag 21.04.2026</span></div>
+                            <div style={{ color:'#94a3b8', fontSize:9, fontWeight:700, marginBottom:8 }}>→ <span style={{color:'#34d399'}}>LIEFERUNG / Kunde / Adresse / Memo / AuftragsNr</span></div>
+                            <textarea style={{ flex:1, width:'100%', background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', padding:16, borderRadius:12, fontSize:11, color:'#fff', fontFamily:'monospace', resize:'none', boxSizing:'border-box' }} value={calImportText} onChange={e => setCalImportText(e.target.value)} placeholder={"Montag 21.04.2026\nLIEFERUNG / Herzog Haustechnik AG / Zürichstrasse 34 Luzern / 6 ELE / 260368365/SLI\n\nDienstag 22.04.2026\nLIEFERUNG / Muster AG / Musterstrasse 1 / 4 ELE / 123456789/SLI"} />
                             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16, marginTop:24 }}>
                                 <button onClick={() => setShowCalImport(false)} style={{ padding:'14px', background:'transparent', border:'none', color:'#64748b', fontWeight:900, textTransform:'uppercase', cursor:'pointer' }}>Abbrechen</button>
                                 <button onClick={processCalImport} style={{ padding:'14px', background:'#3b82f6', border:'none', borderRadius:12, color:'#fff', fontWeight:900, cursor:'pointer' }}>Import in KW {getWeekNumber(calWeek)}</button>
@@ -809,12 +1394,13 @@
                         </div>
                     )}
 
+                    {/* Import Result */}
                     {calImportResult !== null && (
                         <div style={{ position:'fixed', inset:0, zIndex:60, background:'rgba(15,23,42,0.95)', display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
                             <div style={{ background:'rgba(51,65,85,0.98)', backdropFilter:'blur(12px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:24, padding:32, width:'100%', maxWidth:300, display:'flex', flexDirection:'column', alignItems:'center', gap:20 }}>
                                 <div style={{ width:64, height:64, background:'#10b981', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center' }}><Icon name="check" size={32} className="text-white"/></div>
                                 <div style={{ textAlign:'center' }}>
-                                    <div style={{ color:'#94a3b8', fontSize:9, fontWeight:900, textTransform:'uppercase', marginBottom:4 }}>Kalender Import KW {getWeekNumber(calWeek)}</div>
+                                    <div style={{ color:'#94a3b8', fontSize:9, fontWeight:900, textTransform:'uppercase', marginBottom:4 }}>Import KW {getWeekNumber(calWeek)}</div>
                                     <div style={{ color:'#fff', fontSize:48, fontWeight:900, fontStyle:'italic', lineHeight:1 }}>{calImportResult}</div>
                                     <div style={{ color:'#10b981', fontSize:11, fontWeight:900, textTransform:'uppercase', marginTop:4 }}>Aufträge erfasst</div>
                                 </div>
@@ -831,18 +1417,18 @@
         // ─────────────────────────────────────────────────────────────
         function App() {
             const [pin, setPin] = useState('');
-            const [view, setView] = useState('login'); 
+            const [view, setView] = useState('login');
             const [searchTerm, setSearchTerm] = useState('');
             const [workerSearchTerm, setWorkerSearchTerm] = useState('');
             const [showImportModal, setShowImportModal] = useState(false);
-            const [editObject, setEditObject] = useState(null); 
+            const [editObject, setEditObject] = useState(null);
             const [importText, setImportText] = useState('');
             const [isImporting, setIsImporting] = useState(false);
             const [selectedObject, setSelectedObject] = useState(null);
             const [user, setUser] = useState(null);
             const [lang, setLang] = useState('de');
-            const [adminFilter, setAdminFilter] = useState('all'); 
-            const [workerStatusMode, setWorkerStatusMode] = useState(''); 
+            const [adminFilter, setAdminFilter] = useState('all');
+            const [workerStatusMode, setWorkerStatusMode] = useState('');
             const [workerRemaining, setWorkerRemaining] = useState('');
             const [workerBlockReason, setWorkerBlockReason] = useState('');
             const [workerHours, setWorkerHours] = useState('');
@@ -850,6 +1436,7 @@
             const [workerHoursName, setWorkerHoursName] = useState('');
             
             const [objects, setObjects] = useState([]);
+            const [finishedObjects, setFinishedObjects] = useState([]);
             const [pendenzen, setPendenzen] = useState([]);
             const [hourLogs, setHourLogs] = useState([]);
             const [monteurs, setMonteurs] = useState([]);
@@ -878,6 +1465,7 @@
                         setUser(u);
                         if (u) {
                             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'objects'), (s) => setObjects(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+                            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'finishedjobs'), (s) => setFinishedObjects(s.docs.map(d => ({ id: d.id, ...d.data() }))));
                             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'pendenzen'), (s) => setPendenzen(s.docs.map(d => ({ id: d.id, ...d.data() }))));
                             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'hours'), (s) => setHourLogs(s.docs.map(d => ({ id: d.id, ...d.data() }))));
                             onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'monteurs'), (s) => setMonteurs(s.docs.map(d => ({ id: d.id, ...d.data() }))));
@@ -907,14 +1495,28 @@
                     if (!trimmed) continue;
                     const parts = trimmed.split('/').map(p => p.trim());
                     if (parts.length < 2) continue;
-                    const customer = parts[0] || 'Unbekannter Kunde';
-                    const address  = parts[1] || 'Unbekannte Adresse';
-                    const memo     = parts[2] || '';
+
+                    let customer, address, memo, auftragsNrRaw;
+                    const firstUpper = parts[0].toUpperCase();
+
+                    if (firstUpper === 'LIEFERUNG' || firstUpper === 'MONTAGE' || firstUpper === 'SERVICE') {
+                        customer     = parts[1] || 'Unbekannter Kunde';
+                        address      = parts[2] || 'Unbekannte Adresse';
+                        memo         = parts[3] || '';
+                        auftragsNrRaw = parts.slice(4).join('/').trim();
+                    } else {
+                        customer     = parts[0] || 'Unbekannter Kunde';
+                        address      = parts[1] || 'Unbekannte Adresse';
+                        memo         = parts[2] || '';
+                        auftragsNrRaw = parts.slice(3).join('/').trim();
+                    }
+
+                    const auftragsNr = cleanAuftragsNr(auftragsNrRaw);
                     const eleMatch = memo.match(/(\d+)\s*ELE/i);
                     const target = eleMatch ? parseInt(eleMatch[1]) : 1;
                     const houseInfo = memo.replace(/\d+\s*ELE/gi, '').replace(/\bGIS\b/gi, '').replace(/[-–]\s*$/, '').trim() || 'Gesamtmontage';
                     const objId = `obj-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-                    newObjects.push({ id: objId, name: address, customer, address, houseInfo, target, current: 0, lastRemaining: null, blockReason: null, deliveryDate: new Date().toISOString(), status: 'active', history: [] });
+                    newObjects.push({ id: objId, name: address, customer, address, houseInfo, auftragsNr, target, current: 0, lastRemaining: null, blockReason: null, deliveryDate: new Date().toISOString(), status: 'active', history: [] });
                 }
                 if (newObjects.length > 0) {
                     const { db, doc, setDoc } = window.FirebaseSDK;
@@ -930,7 +1532,7 @@
 
             const submitWorkerUpdate = async () => {
                 const now = new Date().toISOString();
-                const { db, doc, updateDoc, deleteDoc, addDoc, collection } = window.FirebaseSDK;
+                const { db, doc, updateDoc, deleteDoc, addDoc, collection, setDoc } = window.FirebaseSDK;
                 const obj = selectedObject;
                 if (workerStatusMode === 'hours') {
                     if (!workerHoursName || !workerHours) return;
@@ -939,6 +1541,14 @@
                     });
                 } else {
                     if (workerStatusMode === 'finished') {
+                        const finishedId = `fin-${obj.id}`;
+                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'finishedjobs', finishedId), {
+                            ...obj,
+                            id: finishedId,
+                            originalId: obj.id,
+                            finishedAt: now,
+                            status: 'finished',
+                        });
                         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'objects', obj.id));
                     } else {
                         let updates = { history: [{ date: now, mode: workerStatusMode, detail: workerStatusMode === 'blocked' ? workerBlockReason : workerRemaining }, ...(obj.history || [])] };
@@ -1037,9 +1647,7 @@
                             setShowPendenzModal(null);
                             setIsSubmittingPendenz(false);
                         }, 1200);
-                    } catch (err) {
-                        setIsSubmittingPendenz(false);
-                    }
+                    } catch (err) { setIsSubmittingPendenz(false); }
                 }, 100);
             };
 
@@ -1074,21 +1682,12 @@
                 }, 200);
             };
 
-            // ── NEW: Reliable Hours PDF using jsPDF directly ──
             const triggerHoursPDF = async (summary) => {
-                if (!window.jspdf) {
-                    alert('PDF-Bibliothek noch nicht geladen. Bitte warte einen Moment und versuche es erneut.');
-                    return;
-                }
+                if (!window.jspdf) { alert('PDF-Bibliothek noch nicht geladen.'); return; }
                 setPdfLoading(true);
-                try {
-                    await generateHoursPDF(summary, selectedDate, hourLogs);
-                } catch(err) {
-                    console.error('PDF error:', err);
-                    alert('PDF-Fehler: ' + err.message);
-                } finally {
-                    setPdfLoading(false);
-                }
+                try { await generateHoursPDF(summary, selectedDate, hourLogs); }
+                catch(err) { alert('PDF-Fehler: ' + err.message); }
+                finally { setPdfLoading(false); }
             };
 
             const stats = useMemo(() => {
@@ -1104,13 +1703,10 @@
 
             const hourSummaries = useMemo(() => {
                 const map = {};
-                monteurs.forEach(m => {
-                    map[m.name] = { name: m.name, week: 0, month: 0, total: 0, logs: [], weekDetails: { 'Mo': 0, 'Di': 0, 'Mi': 0, 'Do': 0, 'Fr': 0, 'Sa': 0 } };
-                });
+                monteurs.forEach(m => { map[m.name] = { name: m.name, week: 0, month: 0, total: 0, logs: [], weekDetails: { 'Mo': 0, 'Di': 0, 'Mi': 0, 'Do': 0, 'Fr': 0, 'Sa': 0 } }; });
                 const now = new Date(selectedDate);
                 const dayOfWeek = now.getDay();
-                const diff = now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
-                const startOfWeek = new Date(now.setDate(diff));
+                const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1));
                 startOfWeek.setHours(0,0,0,0);
                 const endOfWeek = new Date(startOfWeek);
                 endOfWeek.setDate(endOfWeek.getDate() + 7);
@@ -1165,7 +1761,13 @@
             };
 
             if (view === 'calendar') {
-                return <CalendarView onBack={() => setView('dashboard')} calEntries={calEntries} setCalEntries={setCalEntries} appId={appId} />;
+                return <CalendarView
+                    onBack={() => setView('dashboard')}
+                    calEntries={calEntries}
+                    setCalEntries={setCalEntries}
+                    appId={appId}
+                    finishedObjects={finishedObjects}
+                />;
             }
 
             const PrintArea = () => {
@@ -1236,8 +1838,6 @@
             if (view === 'hours_admin') return (
                 <div className="min-h-screen bg-slate-800 pb-20 page-transition">
                     <PrintArea />
-                    
-                    {/* PDF Loading Overlay */}
                     {pdfLoading && (
                         <div className="pdf-loading-overlay">
                             <div className="pdf-spinner"></div>
@@ -1245,7 +1845,6 @@
                             <div style={{ color: '#94a3b8', fontSize: 10, fontWeight: 600 }}>Bitte warten</div>
                         </div>
                     )}
-
                     <nav className="p-4 sticky top-0 z-40 glass border-b border-white/10 flex justify-between items-center">
                         <h2 className="text-sm font-black text-white italic uppercase">Stunden Dashboard</h2>
                         <button onClick={() => setView('login')} className="p-2 text-slate-400"><Icon name="log-out" size={18}/></button>
@@ -1280,11 +1879,7 @@
                                 <div key={summary.name} className="card-gradient p-5 rounded-2xl border border-white/5 flex flex-col gap-4">
                                     <div className="flex justify-between items-center">
                                         <h4 className="text-sm font-black text-white uppercase italic">{summary.name}</h4>
-                                        <button 
-                                            onClick={() => triggerHoursPDF(summary)} 
-                                            className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg flex items-center gap-2"
-                                            title="PDF herunterladen"
-                                        >
+                                        <button onClick={() => triggerHoursPDF(summary)} className="p-2 text-blue-400 hover:bg-blue-500/10 rounded-lg flex items-center gap-2">
                                             <Icon name="download" size={18}/>
                                             <span className="text-[9px] font-black uppercase">PDF</span>
                                         </button>
@@ -1362,21 +1957,29 @@
                                 </div>
                             ))}
                         </div>
+
+                        {/* FIX 1: Wochenkalender-Button — KEIN Badge, KEIN Leuchten, nur schlichter Button */}
                         <button onClick={() => setView('calendar')} className="w-full card-gradient border border-blue-400/30 text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-3 active:scale-95 transition-transform">
                             <Icon name="calendar" size={16} className="text-blue-400" />
                             <span>Wochenkalender</span>
                             <Icon name="arrow-right" size={14} className="text-blue-400" />
                         </button>
+
                         <button onClick={() => setShowImportModal(true)} className="w-full bg-blue-500 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-blue-500/10">Dispo-Text Importieren</button>
                         <div className="space-y-3">
                             <div className="relative mb-4">
                                 <Icon name="search" size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" />
                                 <input type="text" className="w-full bg-slate-900/50 border border-white/5 rounded-xl py-4 pl-12 pr-4 text-xs text-white" placeholder="Objekt suchen..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
                             </div>
-                            {filteredObjectsAdmin.map(obj => (
+                            {filteredObjectsAdmin.map(obj => {
+                                const aufnr = cleanAuftragsNr(obj.auftragsNr || '');
+                                return (
                                 <div key={obj.id} onClick={() => setEditObject(obj)} className={`card-gradient rounded-xl border p-4 relative cursor-pointer ${obj.status === 'blocked' ? 'border-red-400/40' : 'border-white/5'}`}>
                                     <div className="flex justify-between items-start mb-2">
-                                        <h3 className="text-xs font-black text-white italic uppercase">{(obj.address?.includes("Unbekannte Adresse") || obj.name?.includes("Unbekannte Adresse")) ? <span className="text-emerald-400 animate-pulse">Unbekannte Adresse</span> : obj.address}</h3>
+                                        <div>
+                                            <h3 className="text-xs font-black text-white italic uppercase">{(obj.address?.includes("Unbekannte Adresse") || obj.name?.includes("Unbekannte Adresse")) ? <span className="text-emerald-400 animate-pulse">Unbekannte Adresse</span> : obj.address}</h3>
+                                            {aufnr && <div className="text-[9px] font-black text-blue-400 mt-0.5">#{aufnr}</div>}
+                                        </div>
                                         <div className="flex items-center gap-2">
                                             <button onClick={(e) => { e.stopPropagation(); setShowPendenzModal(obj); }} className="px-2 py-1 bg-amber-500/20 border border-amber-500/40 rounded text-amber-500 text-[8px] font-black uppercase">Pendenzen melden</button>
                                             <button onClick={(e) => deleteObject(e, obj.id)} className="p-1.5 bg-red-500/20 text-red-500 rounded hover:bg-red-500/30 transition-colors"><Icon name="trash-2" size={14} /></button>
@@ -1405,9 +2008,10 @@
                                         <div className={`h-full ${obj.status === 'blocked' ? 'bg-red-500' : 'bg-blue-400'}`} style={{width: `${(obj.current/obj.target)*100}%`}}></div>
                                     </div>
                                 </div>
-                            ))}
+                            )})}
                         </div>
                     </main>
+
                     {editObject && (
                         <div className="fixed inset-0 z-50 bg-slate-900/95 flex items-center justify-center p-4">
                             <div className="w-full max-w-sm glass rounded-3xl p-6 space-y-4">
@@ -1465,7 +2069,10 @@
                     )}
                     {showImportModal && (
                         <div className="fixed inset-0 z-50 bg-slate-900/98 p-6 flex flex-col">
-                            <textarea className="flex-1 w-full bg-slate-800 border border-white/10 p-4 rounded-xl text-[11px] text-white" placeholder="Dispo-Text hierher..." value={importText} onChange={(e) => setImportText(e.target.value)} />
+                            <div style={{ color:'#60a5fa', fontSize:10, fontWeight:900, textTransform:'uppercase', letterSpacing:1, marginBottom:4 }}>Dispo-Text Import</div>
+                            <div style={{ color:'#94a3b8', fontSize:9, fontWeight:700, marginBottom:2 }}>Format: <span style={{color:'#34d399'}}>LIEFERUNG / Kunde / Adresse / Memo / AuftragsNr</span></div>
+                            <div style={{ color:'#64748b', fontSize:8, marginBottom:12 }}>Tipp: /SLI am Ende wird automatisch entfernt</div>
+                            <textarea className="flex-1 w-full bg-slate-800 border border-white/10 p-4 rounded-xl text-[11px] text-white font-mono" placeholder={"LIEFERUNG / Herzog Haustechnik AG Luzern / Zürichstrasse 34, 6004 Luzern / 6 ELE / 260368365/SLI\nLIEFERUNG / Muster AG / Musterstr. 1, 8000 Zürich / 4 ELE / 987654321/AB"} value={importText} onChange={(e) => setImportText(e.target.value)} />
                             <div className="grid grid-cols-2 gap-4 mt-6">
                                 <button onClick={() => setShowImportModal(false)} className="py-4 text-slate-500 font-black uppercase">Abbrechen</button>
                                 <button onClick={processTextImport} disabled={isImporting} className="bg-blue-500 text-white py-4 rounded-xl font-black">{isImporting ? 'Importiere...' : 'Import'}</button>
