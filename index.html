@@ -591,6 +591,7 @@
             const [selected, setSelected] = useState(new Set());
             const [pdfLoading, setPdfLoading] = useState(false);
             const [billingData, setBillingData] = useState({});
+            const [searchBilling, setSearchBilling] = useState('');
 
             useEffect(() => {
                 if (!window.FirebaseSDK) return;
@@ -654,6 +655,10 @@
             const firmaBorder = activeTab==='PE'?'rgba(59,130,246,0.35)':'rgba(245,158,11,0.35)';
             const unbilledCount = finishedEntries.filter(e=>!billedIds.has(e.id)).length;
             const billedCount = finishedEntries.filter(e=>billedIds.has(e.id)).length;
+            const filteredFinished = searchBilling.trim().length < 1 ? finishedEntries : finishedEntries.filter(e => {
+                const q = searchBilling.toLowerCase();
+                return (e.customer||'').toLowerCase().includes(q) || (e.address||'').toLowerCase().includes(q) || (e.auftragsNr||'').toLowerCase().includes(q);
+            });
 
             return (
                 <div style={{ position:'fixed', inset:0, zIndex:200, background:'rgba(10,15,28,0.92)', backdropFilter:'blur(6px)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'16px', overflowY:'auto' }}>
@@ -669,8 +674,8 @@
                                 <button onClick={onClose} style={{ background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, width:34, height:34, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#94a3b8' }}><Icon name="x" size={16}/></button>
                             </div>
                             <div style={{ display:'flex', borderTop:'1px solid rgba(255,255,255,0.06)' }}>
-                                <button className={`billing-tab ${activeTab==='PE'?'active-pe':''}`} onClick={()=>{setActiveTab('PE');setSelected(new Set());}}>🔵 PE-Fabrikation</button>
-                                <button className={`billing-tab ${activeTab==='FA'?'active-fa':''}`} onClick={()=>{setActiveTab('FA');setSelected(new Set());}}>🟡 FA-Bauservice</button>
+                                <button className={`billing-tab ${activeTab==='PE'?'active-pe':''}`} onClick={()=>{setActiveTab('PE');setSelected(new Set());setSearchBilling('');}}>🔵 PE-Fabrikation</button>
+                                <button className={`billing-tab ${activeTab==='FA'?'active-fa':''}`} onClick={()=>{setActiveTab('FA');setSelected(new Set());setSearchBilling('');}}>🟡 FA-Bauservice</button>
                             </div>
                         </div>
                         <div style={{ margin:'14px 22px 0 22px', padding:'10px 14px', background:firmaColorBg, border:`1px solid ${firmaBorder}`, borderRadius:10, display:'flex', alignItems:'center', gap:10 }}>
@@ -688,12 +693,34 @@
                             </>)}
                             <button onClick={exportPDF} style={{ padding:'7px 14px', background:activeTab==='PE'?'rgba(59,130,246,0.2)':'rgba(245,158,11,0.2)', border:`1px solid ${firmaBorder}`, borderRadius:8, color:firmaColor, fontSize:9, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:6, marginLeft:'auto' }}><Icon name="download" size={13}/>PDF</button>
                         </div>
+                        <div style={{ padding:'0 22px 10px 22px' }}>
+                            <div style={{ position:'relative' }}>
+                                <div style={{ position:'absolute', left:12, top:'50%', transform:'translateY(-50%)', pointerEvents:'none', fontSize:14 }}>🔍</div>
+                                <input
+                                    type="text"
+                                    value={searchBilling}
+                                    onChange={e=>setSearchBilling(e.target.value)}
+                                    placeholder="Suche nach Kunde, Adresse, Auftragsnr. ..."
+                                    style={{ width:'100%', padding:'9px 36px 9px 36px', background:'#0f172a', border:`1px solid ${firmaBorder}`, borderRadius:10, color:'#fff', fontSize:11, fontWeight:600, boxSizing:'border-box', outline:'none' }}
+                                />
+                                {searchBilling && (
+                                    <button onClick={()=>setSearchBilling('')} style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', color:'#64748b', fontSize:16, lineHeight:1, padding:0 }}>✕</button>
+                                )}
+                            </div>
+                            {searchBilling.trim() && (
+                                <div style={{ fontSize:9, color:'#64748b', marginTop:5, fontWeight:700 }}>
+                                    {filteredFinished.length} von {finishedEntries.length} Aufträgen
+                                </div>
+                            )}
+                        </div>
                         <div style={{ maxHeight:'52vh', overflowY:'auto', padding:'8px 22px 22px 22px' }}>
                             {finishedEntries.length===0 ? (
                                 <div style={{ textAlign:'center', padding:'48px 0', color:'#475569' }}><div style={{fontSize:36,marginBottom:10}}>✓</div><div style={{fontSize:11,fontWeight:900,textTransform:'uppercase',letterSpacing:1}}>Keine fertig montierten Aufträge</div></div>
+                            ) : filteredFinished.length===0 ? (
+                                <div style={{ textAlign:'center', padding:'48px 0', color:'#475569' }}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:11,fontWeight:900,textTransform:'uppercase',letterSpacing:1}}>Keine Treffer für „{searchBilling}"</div></div>
                             ) : (
                                 <div style={{ display:'flex', flexDirection:'column', gap:8, paddingTop:8 }}>
-                                    {finishedEntries.map((entry) => {
+                                    {filteredFinished.map((entry) => {
                                         const isAbgerechnet = billedIds.has(entry.id);
                                         const isSelected = selected.has(entry.id);
                                         const billedDate = billingData[entry.id]?.[`${activeTab}date`];
