@@ -1198,7 +1198,7 @@
             );
         }
 
-        function CalendarView({ onBack, calEntries, setCalEntries, appId, finishedObjects }) {
+        function CalendarView({ onBack, calEntries, setCalEntries, appId, finishedObjects, objects }) {
             const [calWeek, setCalWeek] = useState(new Date());
             const [editCalEntry, setEditCalEntry] = useState(null);
             const [showCalImport, setShowCalImport] = useState(false);
@@ -1239,7 +1239,24 @@
 
             const deleteCalEntry = async (id) => {
                 const { db, doc, deleteDoc } = window.FirebaseSDK;
+                // Delete the calendar entry
                 await deleteDoc(doc(db,'artifacts',appId,'public','data','calentries',id));
+                // Also delete matching object(s) from the Dashboard (objects collection)
+                // Match by auftragsNr (cleaned) or by address
+                const calEntry = calEntries.find(e => e.id === id);
+                if (calEntry && objects && objects.length > 0) {
+                    const calAufnr = cleanAuftragsNr(calEntry.auftragsNr || '');
+                    const calAddr = (calEntry.address || '').trim().toLowerCase();
+                    for (const obj of objects) {
+                        const objAufnr = cleanAuftragsNr(obj.auftragsNr || '');
+                        const objAddr = (obj.address || '').trim().toLowerCase();
+                        const matchByAufnr = calAufnr && objAufnr && calAufnr === objAufnr;
+                        const matchByAddr = calAddr && objAddr && calAddr === objAddr;
+                        if (matchByAufnr || matchByAddr) {
+                            await deleteDoc(doc(db,'artifacts',appId,'public','data','objects',obj.id));
+                        }
+                    }
+                }
             };
 
             const compressCalImage = (file) => new Promise((resolve) => {
@@ -2101,7 +2118,7 @@
                 const newDate=new Date(selectedDate); newDate.setDate(newDate.getDate()+(direction*7)); setSelectedDate(newDate);
             };
 
-            if (view==='calendar') return <CalendarView onBack={()=>setView('dashboard')} calEntries={calEntries} setCalEntries={setCalEntries} appId={appId} finishedObjects={finishedObjects}/>;
+            if (view==='calendar') return <CalendarView onBack={()=>setView('dashboard')} calEntries={calEntries} setCalEntries={setCalEntries} appId={appId} finishedObjects={finishedObjects} objects={objects}/>;
 
             const PrintArea = () => {
                 if (!printData) return null;
