@@ -11,6 +11,7 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
     
     <script type="module">
@@ -586,6 +587,128 @@
             });
         };
 
+        const generateBillingExcel = (entries, firma, billedIds) => {
+            if (!window.XLSX) { alert('Excel-Bibliothek nicht geladen.'); return; }
+            const XLSX = window.XLSX;
+            const firmaLabel = firma === 'PE' ? 'PE-Fabrikation' : 'FA-Bauservice';
+            const today = new Date().toLocaleDateString('de-DE');
+
+            // ── Worksheet data ──────────────────────────────────────────
+            const wsData = [];
+
+            // Title rows
+            wsData.push(['FERTIGMONTAGE ABRECHNUNG — ' + firmaLabel.toUpperCase()]);
+            wsData.push(['Erstellt: ' + today + '    |    Aufträge: ' + entries.length]);
+            wsData.push([]); // blank row
+
+            // Header row
+            wsData.push(['#', 'DATUM', 'KUNDE', 'AUFTRAGSNR.', 'ADRESSE', 'STATUS', 'ABGERECHNET AM']);
+
+            // Data rows
+            entries.forEach((entry, i) => {
+                const isAbgerechnet = billedIds.has(entry.id);
+                const billedDate = isAbgerechnet
+                    ? (entry[`${firma}date`] ? new Date(entry[`${firma}date`]).toLocaleDateString('de-DE') : today)
+                    : '';
+                const datum = entry.finishedAt
+                    ? new Date(entry.finishedAt).toLocaleDateString('de-DE')
+                    : (entry.createdAt ? new Date(entry.createdAt).toLocaleDateString('de-DE') : '');
+                wsData.push([
+                    i + 1,
+                    datum,
+                    entry.customer || '',
+                    cleanAuftragsNr(entry.auftragsNr || ''),
+                    entry.address || '',
+                    isAbgerechnet ? '✓ ABGERECHNET' : '✓ FERTIG',
+                    billedDate,
+                ]);
+            });
+
+            // Summary rows
+            wsData.push([]);
+            wsData.push(['ZUSAMMENFASSUNG']);
+            wsData.push(['Gesamt Aufträge', entries.length]);
+            wsData.push(['Abgerechnet', entries.filter(e => billedIds.has(e.id)).length]);
+            wsData.push(['Offen', entries.filter(e => !billedIds.has(e.id)).length]);
+
+            // ── Create worksheet ────────────────────────────────────────
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+            // Column widths
+            ws['!cols'] = [
+                { wch: 4 },   // #
+                { wch: 12 },  // Datum
+                { wch: 32 },  // Kunde
+                { wch: 20 },  // AuftragsNr
+                { wch: 40 },  // Adresse
+                { wch: 16 },  // Status
+                { wch: 18 },  // Abgerechnet am
+            ];
+
+            // Merge title row across all 7 cols
+            ws['!merges'] = [
+                { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },
+                { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } },
+            ];
+
+            // ── Styling via cell objects ────────────────────────────────
+            const titleCell = ws['A1'];
+            if (titleCell) {
+                titleCell.s = {
+                    font: { bold: true, sz: 14, color: { rgb: firma === 'PE' ? '2563EB' : 'D97706' } },
+                    fill: { fgColor: { rgb: firma === 'PE' ? 'EFF6FF' : 'FFFBEB' } },
+                    alignment: { horizontal: 'left', vertical: 'center' },
+                };
+            }
+
+            // Header row is row index 3 (0-based)
+            const headerCols = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+            headerCols.forEach(col => {
+                const cellRef = col + '4';
+                if (ws[cellRef]) {
+                    ws[cellRef].s = {
+                        font: { bold: true, sz: 10, color: { rgb: 'FFFFFF' } },
+                        fill: { fgColor: { rgb: firma === 'PE' ? '2563EB' : 'D97706' } },
+                        alignment: { horizontal: 'center', vertical: 'center' },
+                        border: {
+                            bottom: { style: 'thin', color: { rgb: 'CCCCCC' } },
+                        },
+                    };
+                }
+            });
+
+            // Data rows styling (start at row index 4)
+            entries.forEach((entry, i) => {
+                const rowIdx = 4 + i; // 0-based
+                const isAbgerechnet = billedIds.has(entry.id);
+                const isEven = i % 2 === 0;
+                const rowFill = isAbgerechnet
+                    ? '0F5132'  // dark green bg for billed
+                    : isEven ? 'F8FAFC' : 'FFFFFF';
+                const textColor = isAbgerechnet ? 'FFFFFF' : '1E293B';
+
+                headerCols.forEach(col => {
+                    const cellRef = col + (rowIdx + 1); // +1 for 1-based
+                    if (ws[cellRef]) {
+                        ws[cellRef].s = {
+                            font: { sz: 10, color: { rgb: textColor }, bold: col === 'C' || col === 'D' },
+                            fill: { fgColor: { rgb: rowFill } },
+                            alignment: { vertical: 'center', wrapText: false },
+                            border: {
+                                bottom: { style: 'hair', color: { rgb: 'E2E8F0' } },
+                            },
+                        };
+                    }
+                });
+            });
+
+            // ── Create workbook and save ────────────────────────────────
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, firmaLabel);
+            const filename = `Abrechnung_${firmaLabel.replace(/\s/g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`;
+            XLSX.writeFile(wb, filename);
+        };
+
         function BillingPanel({ finishedEntries, onClose, appId }) {
             const [activeTab, setActiveTab] = useState('PE');
             const [selected, setSelected] = useState(new Set());
@@ -649,6 +772,11 @@
                 finally { setPdfLoading(false); }
             };
 
+            const exportExcel = () => {
+                try { generateBillingExcel(finishedEntries, activeTab, billedIds); }
+                catch(e) { alert('Excel Fehler: '+e.message); }
+            };
+
             const firmaLabel = activeTab==='PE'?'PE-Fabrikation':'FA-Bauservice';
             const firmaColor = activeTab==='PE'?'#3b82f6':'#f59e0b';
             const firmaColorBg = activeTab==='PE'?'rgba(59,130,246,0.12)':'rgba(245,158,11,0.12)';
@@ -692,6 +820,7 @@
                                 <button onClick={markAsAbgerechnet} style={{ padding:'7px 16px', background:'#10b981', border:'none', borderRadius:8, color:'#fff', fontSize:9, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}><Icon name="check-circle" size={13}/>{selected.size} ABGERECHNET</button>
                             </>)}
                             <button onClick={exportPDF} style={{ padding:'7px 14px', background:activeTab==='PE'?'rgba(59,130,246,0.2)':'rgba(245,158,11,0.2)', border:`1px solid ${firmaBorder}`, borderRadius:8, color:firmaColor, fontSize:9, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:6, marginLeft:'auto' }}><Icon name="download" size={13}/>PDF</button>
+                            <button onClick={exportExcel} style={{ padding:'7px 14px', background:'rgba(16,185,129,0.18)', border:'1px solid rgba(16,185,129,0.45)', borderRadius:8, color:'#10b981', fontSize:9, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}><Icon name="table" size={13}/>EXCEL</button>
                         </div>
                         <div style={{ padding:'0 22px 10px 22px' }}>
                             <div style={{ position:'relative' }}>
@@ -1298,6 +1427,17 @@
                 if (!payload.calType) payload.calType=activeCalType;
                 if (payload.colorOverride===undefined) payload.colorOverride=null;
                 await setDoc(doc(db,'artifacts',appId,'public','data','calentries',id), payload);
+                // ── Automatisch in Admin-Dashboard (objects) eintragen ──
+                const objId = `obj-cal-${id}`;
+                const eleMatch = (payload.memo||'').match(/(\d+)\s*ELE/i);
+                const target = payload.target ? parseInt(payload.target) : (eleMatch ? parseInt(eleMatch[1]) : 1);
+                const houseInfo = (payload.memo||'').replace(/\d+\s*ELE/gi,'').replace(/\bGIS\b/gi,'').replace(/[-–]\s*$/,'').trim() || 'Gesamtmontage';
+                await setDoc(doc(db,'artifacts',appId,'public','data','objects',objId), {
+                    id:objId, name:payload.address||payload.customer, customer:payload.customer||'',
+                    address:payload.address||'', houseInfo, auftragsNr:payload.auftragsNr||'',
+                    target, current:0, lastRemaining:null, blockReason:null,
+                    deliveryDate:new Date().toISOString(), status:'active', history:[], calEntryId:id
+                });
                 setEditCalEntry(null); setShowColorPicker(false);
             };
 
@@ -1348,7 +1488,20 @@
                 }
                 if (newEntries.length>0) {
                     const { db, doc, setDoc } = window.FirebaseSDK;
-                    for (const e of newEntries) await setDoc(doc(db,'artifacts',appId,'public','data','calentries',e.id),e);
+                    for (const e of newEntries) {
+                        await setDoc(doc(db,'artifacts',appId,'public','data','calentries',e.id),e);
+                        // Automatisch in Admin-Dashboard (objects) eintragen
+                        const objId = `obj-cal-${e.id}`;
+                        const eleMatch = (e.memo||'').match(/(\d+)\s*ELE/i);
+                        const impTarget = e.target ? parseInt(e.target) : (eleMatch ? parseInt(eleMatch[1]) : 1);
+                        const houseInfo = (e.memo||'').replace(/\d+\s*ELE/gi,'').replace(/GIS/gi,'').replace(/[-–]\s*$/,'').trim() || 'Gesamtmontage';
+                        await setDoc(doc(db,'artifacts',appId,'public','data','objects',objId), {
+                            id:objId, name:e.address||e.customer, customer:e.customer||'',
+                            address:e.address||'', houseInfo, auftragsNr:e.auftragsNr||'',
+                            target:impTarget, current:0, lastRemaining:null, blockReason:null,
+                            deliveryDate:new Date().toISOString(), status:'active', history:[], calEntryId:e.id
+                        });
+                    }
                 }
                 setCalImportText(''); setShowCalImport(false); setCalImportResult(newEntries.length);
             };
@@ -1395,6 +1548,17 @@
                     memo:item.memo, auftragsNr:item.auftragsNr, target:item.target||0,
                     deliveryDate:startDateStr, endDate:isMultiDay?endDateStr:startDateStr,
                     image:null, calType:activeCalType, colorOverride:null, createdAt:new Date().toISOString(), fromStandby:item.id,
+                });
+                // Automatisch in Admin-Dashboard (objects) eintragen
+                const objId = `obj-cal-${id}`;
+                const eleMatch = (item.memo||'').match(/(\d+)\s*ELE/i);
+                const target = item.target ? parseInt(item.target) : (eleMatch ? parseInt(eleMatch[1]) : 1);
+                const houseInfo = (item.memo||'').replace(/\d+\s*ELE/gi,'').replace(/GIS/gi,'').replace(/[-–]\s*$/,'').trim() || 'Gesamtmontage';
+                await setDoc(doc(db,'artifacts',appId,'public','data','objects',objId), {
+                    id:objId, name:item.address||item.customer, customer:item.customer||'',
+                    address:item.address||'', houseInfo, auftragsNr:item.auftragsNr||'',
+                    target, current:0, lastRemaining:null, blockReason:null,
+                    deliveryDate:new Date().toISOString(), status:'active', history:[], calEntryId:id
                 });
                 setShowStandbyPicker(false);
             };
