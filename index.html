@@ -1386,6 +1386,7 @@
             const [activeCalType, setActiveCalType] = useState('montage');
             const [showColorPicker, setShowColorPicker] = useState(false);
             const [verschiebenEntry, setVerschiebenEntry] = useState(null);
+            const [erledigtConfirmEntry, setErledigtConfirmEntry] = useState(null);
 
             const days = getCalWeekDays(calWeek);
             const DAY_NAMES = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
@@ -1494,6 +1495,40 @@
                 await updateDoc(doc(db,'artifacts',appId,'public','data','calentries',entryId), { deliveryDate: newStart, endDate: newEnd });
                 setVerschiebenEntry(null);
                 setCalWeek(new Date(newStart));
+            };
+
+            const markCalEntryDone = async (entry) => {
+                const { db, doc, setDoc, updateDoc, deleteDoc } = window.FirebaseSDK;
+                const now = new Date().toISOString();
+                // 1. Calentry als erledigt markieren
+                await updateDoc(doc(db,'artifacts',appId,'public','data','calentries',entry.id), { doneAt: now });
+                // 2. In finishedjobs speichern (für Abrechnung)
+                const finishedId = `fin-cal-${entry.id}`;
+                await setDoc(doc(db,'artifacts',appId,'public','data','finishedjobs',finishedId), {
+                    id: finishedId,
+                    originalCalId: entry.id,
+                    customer: entry.customer || '',
+                    address: entry.address || '',
+                    memo: entry.memo || '',
+                    auftragsNr: entry.auftragsNr || '',
+                    target: parseInt(entry.target) || 0,
+                    deliveryDate: entry.deliveryDate || now,
+                    finishedAt: now,
+                    status: 'finished',
+                    calType: entry.calType || 'montage',
+                });
+                // 3. Passendes objects-Dokument löschen (verschwindet aus Admin-Dashboard)
+                const entryAufnr = cleanAuftragsNr(entry.auftragsNr || '');
+                const entryAddr = (entry.address || '').trim().toLowerCase();
+                for (const obj of (objects || [])) {
+                    const objAufnr = cleanAuftragsNr(obj.auftragsNr || '');
+                    const objAddr = (obj.address || '').trim().toLowerCase();
+                    const match = (entryAufnr && objAufnr && entryAufnr === objAufnr) || (entryAddr && objAddr && entryAddr === objAddr);
+                    if (match) {
+                        await deleteDoc(doc(db,'artifacts',appId,'public','data','objects',obj.id));
+                    }
+                }
+                setErledigtConfirmEntry(null);
             };
 
             const processCalImport = async () => {
@@ -1668,6 +1703,18 @@
                         {!deleteMode && !copyEntry && (
                             <div className="cal-card-actions">
                                 <button className="cal-card-btn-verschieben" onClick={(ev) => { ev.stopPropagation(); setVerschiebenEntry(e); }}>📅 Verschieben</button>
+                                {!e.doneAt && (
+                                    <button
+                                        onClick={(ev) => { ev.stopPropagation(); setErledigtConfirmEntry(e); }}
+                                        style={{ fontSize:'7.5px', fontWeight:900, padding:'2px 7px', borderRadius:4, border:'1px solid #16a34a', cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.4px', background:'#dcfce7', color:'#15803d', transition:'all 0.12s' }}
+                                    >✓ Erledigt</button>
+                                )}
+                                {e.doneAt && (
+                                    <button
+                                        onClick={(ev) => { ev.stopPropagation(); if(window.confirm('Erledigt-Markierung rückgängig machen?')) { const {db,doc,updateDoc}=window.FirebaseSDK; updateDoc(doc(db,'artifacts',appId,'public','data','calentries',e.id),{doneAt:null}); } }}
+                                        style={{ fontSize:'7px', fontWeight:900, padding:'2px 7px', borderRadius:4, border:'1px solid rgba(239,68,68,0.4)', cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.4px', background:'rgba(239,68,68,0.08)', color:'#dc2626', transition:'all 0.12s' }}
+                                    >↩ Rückgängig</button>
+                                )}
                             </div>
                         )}
                         {!deleteMode && !copyEntry && isStart && (
@@ -1813,6 +1860,30 @@
                     {showBillingPanel && <BillingPanel finishedEntries={finishedObjects} onClose={()=>setShowBillingPanel(false)} appId={appId} calEntries={calEntries}/>}
                     {showStandbyPicker && <StandbyPicker appId={appId} onClose={()=>setShowStandbyPicker(false)} onInsert={(item,start,end)=>{insertStandbyItem(item,start,end);}} defaultDate={toLocalDateStr(days[0])}/>}
                     {verschiebenEntry && <VerschiebenModal entry={verschiebenEntry} onClose={()=>setVerschiebenEntry(null)} onSave={handleVerschieben}/>}
+                    {erledigtConfirmEntry && (
+                        <div style={{ position:'fixed', inset:0, zIndex:200, background:'rgba(10,15,28,0.88)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+                            <div style={{ background:'#1e293b', border:'2px solid rgba(16,185,129,0.4)', borderRadius:20, padding:28, width:'100%', maxWidth:380, display:'flex', flexDirection:'column', gap:16 }}>
+                                <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                                    <div style={{ width:44, height:44, borderRadius:'50%', background:'rgba(16,185,129,0.2)', border:'2px solid rgba(16,185,129,0.5)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20, flexShrink:0 }}>✓</div>
+                                    <div>
+                                        <div style={{ color:'#10b981', fontSize:9, fontWeight:900, textTransform:'uppercase', letterSpacing:1.5, marginBottom:3 }}>Auftrag abschliessen</div>
+                                        <div style={{ color:'#fff', fontSize:13, fontWeight:900, textTransform:'uppercase' }}>{erledigtConfirmEntry.customer}</div>
+                                        {erledigtConfirmEntry.address && <div style={{ color:'#94a3b8', fontSize:10, marginTop:2 }}>{erledigtConfirmEntry.address}</div>}
+                                    </div>
+                                </div>
+                                <div style={{ background:'rgba(245,158,11,0.1)', border:'1px solid rgba(245,158,11,0.35)', borderRadius:10, padding:'12px 14px', display:'flex', gap:10, alignItems:'flex-start' }}>
+                                    <span style={{ fontSize:16, flexShrink:0 }}>⚠️</span>
+                                    <div style={{ color:'#fde68a', fontSize:10, fontWeight:700, lineHeight:1.5 }}>
+                                        Dieser Auftrag wird als <strong>Fertig montiert</strong> markiert und verschwindet aus der Admin-Dashboard-Liste. Er wird ins Abrechnungstool übertragen und im Kalender grün markiert.
+                                    </div>
+                                </div>
+                                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginTop:4 }}>
+                                    <button onClick={()=>setErledigtConfirmEntry(null)} style={{ padding:'12px', background:'transparent', border:'1px solid #334155', borderRadius:10, color:'#64748b', fontWeight:900, fontSize:10, textTransform:'uppercase', cursor:'pointer' }}>Abbrechen</button>
+                                    <button onClick={()=>markCalEntryDone(erledigtConfirmEntry)} style={{ padding:'12px', background:'#10b981', border:'none', borderRadius:10, color:'#fff', fontWeight:900, fontSize:10, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>✓ Bestätigen</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* ── TOP BAR ── */}
                     <div style={{ background:'#1e293b', padding:'10px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', position:'sticky', top:0, zIndex:40, borderBottom:'2px solid #334155', flexShrink:0 }}>
