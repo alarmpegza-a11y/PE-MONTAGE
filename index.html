@@ -163,6 +163,26 @@
             pointer-events: none; white-space: nowrap; z-index: 10;
         }
 
+        .erledigt-stamp {
+            position: absolute; top: 50%; left: 50%;
+            transform: translate(-50%, -50%) rotate(-20deg);
+            border: 2.5px solid rgba(16,185,129,0.9);
+            border-radius: 5px; padding: 3px 8px;
+            background: rgba(16,185,129,0.12);
+            color: rgba(5,150,105,1); font-size: 9px; font-weight: 900;
+            letter-spacing: 1.5px; text-transform: uppercase;
+            pointer-events: none; white-space: nowrap; z-index: 10;
+        }
+        .cal-card-erledigt-banner {
+            display: flex; align-items: center; gap: 4px;
+            margin-top: 4px; padding: 3px 7px;
+            background: rgba(16,185,129,0.15);
+            border: 1px solid rgba(16,185,129,0.4);
+            border-radius: 4px;
+            font-size: 7.5px; font-weight: 900; text-transform: uppercase;
+            letter-spacing: 0.8px; color: #059669;
+        }
+
         .billing-tab {
             flex: 1; padding: 10px 16px; font-size: 11px; font-weight: 900;
             text-transform: uppercase; letter-spacing: 1px;
@@ -1449,6 +1469,23 @@
                 if (!payload.calType) payload.calType=activeCalType;
                 if (payload.colorOverride===undefined) payload.colorOverride=null;
                 await setDoc(doc(db,'artifacts',appId,'public','data','calentries',id), payload);
+                // Gleichzeitig auch im Admin-Dashboard (objects) anlegen
+                const objId = `obj-${id}`;
+                const eleMatch = (payload.memo||'').match(/(\d+)\s*ELE/i);
+                const target = eleMatch ? parseInt(eleMatch[1]) : (parseInt(payload.target)||1);
+                await setDoc(doc(db,'artifacts',appId,'public','data','objects',objId), {
+                    id: objId, calEntryId: id,
+                    name: payload.address || payload.customer,
+                    customer: payload.customer || '',
+                    address: payload.address || '',
+                    houseInfo: payload.memo || 'Gesamtmontage',
+                    memo: payload.memo || '',
+                    auftragsNr: payload.auftragsNr || '',
+                    target, current: 0,
+                    lastRemaining: null, blockReason: null,
+                    deliveryDate: payload.deliveryDate || new Date().toISOString(),
+                    status: 'active', history: [],
+                });
                 setEditCalEntry(null); setShowColorPicker(false);
             };
 
@@ -1499,7 +1536,26 @@
                 }
                 if (newEntries.length>0) {
                     const { db, doc, setDoc } = window.FirebaseSDK;
-                    for (const e of newEntries) await setDoc(doc(db,'artifacts',appId,'public','data','calentries',e.id),e);
+                    for (const e of newEntries) {
+                        await setDoc(doc(db,'artifacts',appId,'public','data','calentries',e.id), e);
+                        // Auch im Admin-Dashboard anlegen
+                        const objId = `obj-${e.id}`;
+                        const eleMatch2 = (e.memo||'').match(/(\d+)\s*ELE/i);
+                        const target2 = eleMatch2 ? parseInt(eleMatch2[1]) : (e.target || 1);
+                        await setDoc(doc(db,'artifacts',appId,'public','data','objects',objId), {
+                            id: objId, calEntryId: e.id,
+                            name: e.address || e.customer,
+                            customer: e.customer || '',
+                            address: e.address || '',
+                            houseInfo: e.memo || 'Gesamtmontage',
+                            memo: e.memo || '',
+                            auftragsNr: e.auftragsNr || '',
+                            target: target2, current: 0,
+                            lastRemaining: null, blockReason: null,
+                            deliveryDate: e.deliveryDate || new Date().toISOString(),
+                            status: 'active', history: [],
+                        });
+                    }
                 }
                 setCalImportText(''); setShowCalImport(false); setCalImportResult(newEntries.length);
             };
@@ -1572,7 +1628,7 @@
                 return (
                     <div
                         className={`cal-card-new${deleteMode?' delete-mode-card':''}${isHighlighted?' search-highlight':''}`}
-                        style={{ background: bg, borderLeftColor: border, borderTopColor: border+'44', borderRightColor: border+'33', borderBottomColor: border+'33', color: textCol }}
+                        style={{ background: e.doneAt ? '#dcfce7' : bg, borderLeftColor: e.doneAt ? '#16a34a' : border, borderTopColor: (e.doneAt ? '#16a34a' : border)+'44', borderRightColor: (e.doneAt ? '#16a34a' : border)+'33', borderBottomColor: (e.doneAt ? '#16a34a' : border)+'33', color: e.doneAt ? '#14532d' : textCol, opacity: e.doneAt ? 0.88 : 1 }}
                         onClick={(ev) => {
                             ev.stopPropagation();
                             if (deleteMode) { if(confirm(`"${e.customer}" löschen?`)) deleteCalEntry(e.id); }
@@ -1581,6 +1637,7 @@
                         }}
                     >
                         {e.image && !deleteMode && <div className="cal-card-photo-dot" title="Foto vorhanden"></div>}
+                        {e.doneAt && !deleteMode && <div className="erledigt-stamp">✓ Erledigt</div>}
                         {deleteMode && <div className="delete-overlay-x">✕</div>}
                         {(e.colorOverride!==null&&e.colorOverride!==undefined)&&!e.image&&!deleteMode && (
                             <div title="Farbe manuell" style={{ position:'absolute', top:4, right:4, width:5, height:5, borderRadius:'50%', background:border, border:'1px solid rgba(0,0,0,0.15)' }}></div>
@@ -1603,6 +1660,11 @@
                             </div>
                         )}
                         {e.target > 0 && <div className="cal-card-ele" style={{ background: border }}>{e.target} ELE</div>}
+                        {e.doneAt && !deleteMode && (
+                            <div className="cal-card-erledigt-banner">
+                                ✓ Fertig montiert · {new Date(e.doneAt).toLocaleDateString('de-DE')}
+                            </div>
+                        )}
                         {!deleteMode && !copyEntry && (
                             <div className="cal-card-actions">
                                 <button className="cal-card-btn-verschieben" onClick={(ev) => { ev.stopPropagation(); setVerschiebenEntry(e); }}>📅 Verschieben</button>
@@ -2112,6 +2174,10 @@
                             memo: obj.memo || memoFromCal,
                         });
                         await deleteDoc(doc(db,'artifacts',appId,'public','data','objects',obj.id));
+                        // Passendes calentry als "erledigt" markieren
+                        if (matchingCal) {
+                            await updateDoc(doc(db,'artifacts',appId,'public','data','calentries',matchingCal.id), { doneAt: now });
+                        }
                     } else {
                         let updates = {history:[{date:now,mode:workerStatusMode,detail:workerStatusMode==='blocked'?workerBlockReason:workerRemaining},...(obj.history||[])]};
                         if (workerStatusMode==='blocked') updates={...updates,status:'blocked',blockReason:workerBlockReason,lastRemaining:obj.lastRemaining??null};
