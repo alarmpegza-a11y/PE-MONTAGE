@@ -1387,6 +1387,8 @@
             const [showColorPicker, setShowColorPicker] = useState(false);
             const [verschiebenEntry, setVerschiebenEntry] = useState(null);
             const [erledigtConfirmEntry, setErledigtConfirmEntry] = useState(null);
+            const [showOffeneListePanel, setShowOffeneListePanel] = useState(false);
+            const [offenePdfLoading, setOffenePdfLoading] = useState(false);
 
             const days = getCalWeekDays(calWeek);
             const DAY_NAMES = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
@@ -1617,6 +1619,124 @@
                         pagebreak: {mode:'avoid-all'}
                     }).from(el).save();
                 }, 200);
+            };
+
+            const generateOffeneListePDF = (offeneEntries, calType) => {
+                return new Promise((resolve) => {
+                    const { jsPDF } = window.jspdf;
+                    const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+                    const pageW=210, pageH=297, margin=18, contentW=pageW-margin*2;
+                    let y=20;
+                    const typeLabel = calType==='montage'?'MONTAGE':calType==='beplankung'?'BEPLANKUNG':'AUSFLOCKEN';
+                    const typeColor = calType==='montage'?[37,99,235]:calType==='beplankung'?[5,150,105]:[180,83,9];
+                    // Header bar
+                    doc.setFillColor(...typeColor);
+                    doc.rect(0,0,pageW,14,'F');
+                    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(255,255,255);
+                    doc.text('OFFENE AUFTRÄGE — ' + typeLabel, margin, 9);
+                    doc.text(new Date().toLocaleDateString('de-DE'), pageW-margin, 9, {align:'right'});
+                    y=26;
+                    doc.setFont('helvetica','bold'); doc.setFontSize(22); doc.setTextColor(0,0,0);
+                    doc.text('OFFENE AUFTRÄGE', margin, y); y+=8;
+                    doc.setFontSize(13); doc.setTextColor(...typeColor);
+                    doc.text(typeLabel, margin, y); y+=5;
+                    doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(130,130,130);
+                    doc.text('Erstellt: ' + new Date().toLocaleDateString('de-DE') + '   |   Aufträge: ' + offeneEntries.length, margin, y); y+=3;
+                    doc.setDrawColor(0,0,0); doc.setLineWidth(0.5); doc.line(margin,y,pageW-margin,y); y+=7;
+                    // Table header
+                    const col = { nr:margin, datum:margin+8, kunde:margin+38, aufnr:margin+98, adress:margin+148, memo:pageW-margin };
+                    doc.setFillColor(245,247,250);
+                    doc.rect(margin-2,y-5,contentW+4,9,'F');
+                    doc.setFont('helvetica','bold'); doc.setFontSize(7); doc.setTextColor(80,80,80);
+                    doc.text('#',col.nr,y); doc.text('DATUM',col.datum,y); doc.text('KUNDE',col.kunde,y);
+                    doc.text('AUFTRAGSNR.',col.aufnr,y); doc.text('ADRESSE',col.adress,y); doc.text('MEMO',col.memo,y,{align:'right'});
+                    y+=2; doc.setDrawColor(200,200,200); doc.setLineWidth(0.3); doc.line(margin-2,y,pageW-margin+2,y); y+=5;
+                    // Rows
+                    offeneEntries.forEach((entry,i) => {
+                        if (y>pageH-30) { doc.addPage(); y=20; }
+                        const rowH=12;
+                        if (i%2===0) { doc.setFillColor(250,251,253); doc.rect(margin-2,y-5,contentW+4,rowH,'F'); }
+                        doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(0,0,0);
+                        doc.text(String(i+1),col.nr,y);
+                        doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(60,60,60);
+                        const datum = entry.deliveryDate ? new Date(entry.deliveryDate).toLocaleDateString('de-DE') : '—';
+                        doc.text(datum, col.datum, y);
+                        doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(0,0,0);
+                        const kunde = (entry.customer||'').length>22?(entry.customer||'').substring(0,22)+'…':(entry.customer||'');
+                        doc.text(kunde, col.kunde, y);
+                        const aufnr = cleanAuftragsNr(entry.auftragsNr||'');
+                        if (aufnr) { doc.setFont('helvetica','bold'); doc.setFontSize(7.5); doc.setTextColor(...typeColor); doc.text(aufnr.length>18?aufnr.substring(0,18)+'…':aufnr, col.aufnr, y); }
+                        else { doc.setFont('helvetica','normal'); doc.setFontSize(7); doc.setTextColor(160,160,160); doc.text('—',col.aufnr,y); }
+                        doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(60,60,60);
+                        const addr = (entry.address||'').length>28?(entry.address||'').substring(0,28)+'…':(entry.address||'');
+                        doc.text(addr, col.adress, y);
+                        if (entry.memo) { doc.setFont('helvetica','italic'); doc.setFontSize(7); doc.setTextColor(130,80,0); const memo=(entry.memo||'').length>22?(entry.memo||'').substring(0,22)+'…':(entry.memo||''); doc.text(memo,col.memo,y,{align:'right'}); }
+                        y+=2; doc.setDrawColor(230,230,230); doc.setLineWidth(0.15); doc.line(margin-2,y,pageW-margin+2,y); y+=rowH-2;
+                    });
+                    // Footer summary
+                    y+=4; if(y>pageH-25) { doc.addPage(); y=20; }
+                    doc.setDrawColor(0,0,0); doc.setLineWidth(0.5); doc.line(margin,y,pageW-margin,y); y+=6;
+                    doc.setFillColor(248,250,252); doc.rect(margin-2,y-1,contentW+4,12,'F');
+                    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(0,0,0);
+                    doc.text('Gesamt offene Aufträge: ' + offeneEntries.length, margin+2, y+7);
+                    doc.setFontSize(6.5); doc.setFont('helvetica','normal'); doc.setTextColor(180,180,180);
+                    doc.text('Montage Manager Pro • Erstellt: ' + new Date().toLocaleDateString('de-DE'), pageW/2, pageH-6, {align:'center'});
+                    doc.save('Offene_Auftraege_' + typeLabel + '_' + new Date().toISOString().split('T')[0] + '.pdf');
+                    resolve();
+                });
+            };
+
+            const generateOffeneListeExcel = (offeneEntries, calType) => {
+                if (!window.XLSX) { alert('Excel-Bibliothek nicht geladen.'); return; }
+                const XLSX = window.XLSX;
+                const typeLabel = calType==='montage'?'MONTAGE':calType==='beplankung'?'BEPLANKUNG':'AUSFLOCKEN';
+                const today = new Date().toLocaleDateString('de-DE');
+                const wsData = [];
+                wsData.push(['OFFENE AUFTRÄGE — ' + typeLabel]);
+                wsData.push(['Erstellt: ' + today + '    |    Aufträge: ' + offeneEntries.length]);
+                wsData.push([]);
+                wsData.push(['#','DATUM','KUNDE','AUFTRAGSNR.','ADRESSE','MEMO','STATUS']);
+                offeneEntries.forEach((entry,i) => {
+                    const datum = entry.deliveryDate ? new Date(entry.deliveryDate).toLocaleDateString('de-DE') : '';
+                    wsData.push([
+                        i+1, datum,
+                        entry.customer||'',
+                        cleanAuftragsNr(entry.auftragsNr||''),
+                        entry.address||'',
+                        entry.memo||'',
+                        '⬜ OFFEN',
+                    ]);
+                });
+                wsData.push([]);
+                wsData.push(['Gesamt offene Aufträge', offeneEntries.length]);
+                const ws = XLSX.utils.aoa_to_sheet(wsData);
+                ws['!cols'] = [{wch:4},{wch:12},{wch:28},{wch:18},{wch:36},{wch:30},{wch:10}];
+                ws['!merges'] = [
+                    {s:{r:0,c:0},e:{r:0,c:6}},
+                    {s:{r:1,c:0},e:{r:1,c:6}},
+                ];
+                const typeColorHex = calType==='montage'?'2563EB':calType==='beplankung'?'059669':'B45309';
+                if (ws['A1']) ws['A1'].s = { font:{bold:true,sz:13,color:{rgb:typeColorHex}}, fill:{fgColor:{rgb:'F8FAFC'}}, alignment:{horizontal:'left'} };
+                ['A','B','C','D','E','F','G'].forEach(col => {
+                    const ref = col+'4';
+                    if (ws[ref]) ws[ref].s = { font:{bold:true,sz:10,color:{rgb:'FFFFFF'}}, fill:{fgColor:{rgb:typeColorHex}}, alignment:{horizontal:'center'} };
+                });
+                offeneEntries.forEach((_,i) => {
+                    const row = 4+i+1;
+                    const isEven = i%2===0;
+                    ['A','B','C','D','E','F','G'].forEach(col => {
+                        const ref = col+row;
+                        if (ws[ref]) ws[ref].s = {
+                            font:{sz:10, color:{rgb:'1E293B'}, bold:col==='C'||col==='D'},
+                            fill:{fgColor:{rgb:isEven?'F8FAFC':'FFFFFF'}},
+                            alignment:{vertical:'center'},
+                            border:{bottom:{style:'hair',color:{rgb:'E2E8F0'}}},
+                        };
+                    });
+                });
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'Offene Aufträge');
+                XLSX.writeFile(wb, 'Offene_Auftraege_' + typeLabel + '_' + new Date().toISOString().split('T')[0] + '.xlsx');
             };
 
             const pasteCopyToDay = async (dayStr) => {
@@ -1860,6 +1980,75 @@
                     {showBillingPanel && <BillingPanel finishedEntries={finishedObjects} onClose={()=>setShowBillingPanel(false)} appId={appId} calEntries={calEntries}/>}
                     {showStandbyPicker && <StandbyPicker appId={appId} onClose={()=>setShowStandbyPicker(false)} onInsert={(item,start,end)=>{insertStandbyItem(item,start,end);}} defaultDate={toLocalDateStr(days[0])}/>}
                     {verschiebenEntry && <VerschiebenModal entry={verschiebenEntry} onClose={()=>setVerschiebenEntry(null)} onSave={handleVerschieben}/>}
+                    {showOffeneListePanel && (()=>{
+                        const offeneEntries = filteredEntries.filter(e => !e.doneAt).sort((a,b)=>(a.deliveryDate||'').localeCompare(b.deliveryDate||''));
+                        const typeColor = activeCalType==='montage'?'#3b82f6':activeCalType==='beplankung'?'#10b981':'#f59e0b';
+                        const typeBorder = activeCalType==='montage'?'rgba(59,130,246,0.3)':activeCalType==='beplankung'?'rgba(16,185,129,0.3)':'rgba(245,158,11,0.3)';
+                        return (
+                            <div style={{ position:'fixed', inset:0, zIndex:200, background:'rgba(10,15,28,0.92)', backdropFilter:'blur(6px)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:'16px', overflowY:'auto' }}>
+                                {offenePdfLoading && <div className="pdf-loading-overlay" style={{zIndex:300}}><div className="pdf-spinner"></div><div style={{color:'#fff',fontSize:13,fontWeight:900,textTransform:'uppercase',letterSpacing:1}}>Export wird erstellt...</div></div>}
+                                <div style={{ width:'100%', maxWidth:680, background:'#1a2234', border:'1px solid rgba(255,255,255,0.1)', borderRadius:24, overflow:'hidden', marginTop:8, boxShadow:'0 30px 80px rgba(0,0,0,0.7)' }}>
+                                    <div style={{ background:'linear-gradient(135deg,#0f172a,#1e293b)', borderBottom:'1px solid rgba(255,255,255,0.08)', padding:'18px 22px' }}>
+                                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+                                            <div>
+                                                <div style={{ fontSize:9, fontWeight:900, textTransform:'uppercase', letterSpacing:2, color:'#64748b', marginBottom:4 }}>Export für Subunternehmer</div>
+                                                <h2 style={{ color:'#fff', fontSize:18, fontWeight:900, fontStyle:'italic', margin:0, textTransform:'uppercase' }}>Offene Aufträge</h2>
+                                                <div style={{ fontSize:9, color:'#94a3b8', marginTop:3 }}>
+                                                    {activeCalType==='montage'?'🔧 Montage':activeCalType==='beplankung'?'🏗 Beplankung':'❄️ Ausflocken'}
+                                                    &nbsp;•&nbsp;
+                                                    <span style={{color:'#f59e0b',fontWeight:900}}>{offeneEntries.length} offene Aufträge</span>
+                                                    &nbsp;•&nbsp;
+                                                    <span style={{color:'#10b981'}}>{filteredEntries.filter(e=>e.doneAt).length} erledigt</span>
+                                                </div>
+                                            </div>
+                                            <button onClick={()=>setShowOffeneListePanel(false)} style={{ background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, width:34, height:34, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'#94a3b8' }}><Icon name="x" size={16}/></button>
+                                        </div>
+                                        <div style={{ display:'flex', gap:10, marginTop:16 }}>
+                                            <button onClick={async()=>{ setOffenePdfLoading(true); try { await generateOffeneListePDF(offeneEntries, activeCalType); } catch(e){alert('PDF Fehler: '+e.message);} finally{setOffenePdfLoading(false);} }} style={{ flex:1, padding:'10px', background:'rgba(124,58,237,0.2)', border:'1px solid rgba(124,58,237,0.45)', borderRadius:10, color:'#a78bfa', fontSize:10, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                                                <Icon name="file-text" size={15}/>PDF Exportieren
+                                            </button>
+                                            <button onClick={()=>{ try { generateOffeneListeExcel(offeneEntries, activeCalType); } catch(e){alert('Excel Fehler: '+e.message);} }} style={{ flex:1, padding:'10px', background:'rgba(16,185,129,0.18)', border:'1px solid rgba(16,185,129,0.4)', borderRadius:10, color:'#10b981', fontSize:10, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                                                <Icon name="table" size={15}/>Excel Exportieren
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div style={{ maxHeight:'60vh', overflowY:'auto', padding:'12px 22px 22px' }}>
+                                        {offeneEntries.length===0 ? (
+                                            <div style={{ textAlign:'center', padding:'48px 0', color:'#475569' }}>
+                                                <div style={{fontSize:36,marginBottom:10}}>🎉</div>
+                                                <div style={{fontSize:12,fontWeight:900,textTransform:'uppercase',letterSpacing:1,color:'#10b981'}}>Alle Aufträge erledigt!</div>
+                                            </div>
+                                        ) : (
+                                            <div style={{ display:'flex', flexDirection:'column', gap:8, paddingTop:8 }}>
+                                                {offeneEntries.map((entry,i) => {
+                                                    const aufnr = cleanAuftragsNr(entry.auftragsNr||'');
+                                                    return (
+                                                        <div key={entry.id} style={{ background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.07)', borderLeft:`3px solid ${typeColor}`, borderRadius:10, padding:'10px 14px' }}>
+                                                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
+                                                                <div style={{ flex:1, minWidth:0 }}>
+                                                                    <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3 }}>
+                                                                        <span style={{ color:'#64748b', fontSize:8, fontWeight:900 }}>#{i+1}</span>
+                                                                        {aufnr && <span style={{ background:`rgba(${activeCalType==='montage'?'59,130,246':activeCalType==='beplankung'?'16,185,129':'245,158,11'},0.15)`, border:`1px solid ${typeBorder}`, borderRadius:5, padding:'1px 6px', color:typeColor, fontSize:8, fontWeight:900 }}>{aufnr}</span>}
+                                                                    </div>
+                                                                    <div style={{ color:'#fff', fontSize:11, fontWeight:900, textTransform:'uppercase', fontStyle:'italic', marginBottom:2 }}>{entry.customer}</div>
+                                                                    <div style={{ color:'#94a3b8', fontSize:10, marginBottom:entry.memo?4:0 }}>{entry.address}</div>
+                                                                    {entry.memo && <div style={{ color:'#fde68a', fontSize:9, fontWeight:800, borderLeft:'2px solid #f59e0b', paddingLeft:6 }}>📝 {entry.memo}</div>}
+                                                                </div>
+                                                                <div style={{ flexShrink:0, textAlign:'right' }}>
+                                                                    <div style={{ color:'#60a5fa', fontSize:9, fontWeight:900 }}>{entry.deliveryDate ? new Date(entry.deliveryDate).toLocaleDateString('de-DE') : '—'}</div>
+                                                                    <div style={{ marginTop:4, background:'rgba(245,158,11,0.15)', border:'1px solid rgba(245,158,11,0.3)', borderRadius:5, padding:'2px 7px', color:'#f59e0b', fontSize:8, fontWeight:900, textTransform:'uppercase' }}>⬜ OFFEN</div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        );
+                    })()}
                     {erledigtConfirmEntry && (
                         <div style={{ position:'fixed', inset:0, zIndex:200, background:'rgba(10,15,28,0.88)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
                             <div style={{ background:'#1e293b', border:'2px solid rgba(16,185,129,0.4)', borderRadius:20, padding:28, width:'100%', maxWidth:380, display:'flex', flexDirection:'column', gap:16 }}>
@@ -1922,6 +2111,7 @@
                             <button onClick={()=>setShowStandbyView(true)} style={{ background:'rgba(245,158,11,0.15)', border:'1px solid rgba(245,158,11,0.35)', borderRadius:8, padding:'5px 12px', color:'#f59e0b', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}><Icon name="settings" size={12}/>Pool</button>
                             <button onClick={()=>setShowCalImport(true)} style={{ background:'#3b82f6', border:'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}><Icon name="upload" size={12}/>Import</button>
                             <button onClick={triggerWeekPDF} style={{ background:'#475569', border:'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}><Icon name="download" size={12}/>A3 PDF</button>
+                            <button onClick={()=>setShowOffeneListePanel(true)} style={{ background:'linear-gradient(135deg,#7c3aed,#6d28d9)', border:'1px solid rgba(124,58,237,0.5)', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}><Icon name="send" size={12}/>Offen Liste</button>
                             <button onClick={()=>{setDeleteMode(!deleteMode);setCopyEntry(null);}} style={{ background:deleteMode?'#ef4444':'#334155', border:deleteMode?'2px solid #fca5a5':'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
                                 <Icon name={deleteMode?"x":"trash-2"} size={12}/>{deleteMode?'Fertig':'Löschen'}
                             </button>
@@ -2171,6 +2361,89 @@
                             onSnapshot(collection(db,'artifacts',appId,'public','data','hours'), (s)=>setHourLogs(s.docs.map(d=>({id:d.id,...d.data()}))));
                             onSnapshot(collection(db,'artifacts',appId,'public','data','monteurs'), (s)=>setMonteurs(s.docs.map(d=>({id:d.id,...d.data()}))));
                             onSnapshot(collection(db,'artifacts',appId,'public','data','calentries'), (s)=>setCalEntries(s.docs.map(d=>({id:d.id,...d.data()}))));
+
+                            // ═══════════════════════════════════════════════════════════
+                            // EINMALIGER SYNC: Aufträge aus Abrechnungsliste als Erledigt markieren
+                            // Wird nur ausgeführt wenn localStorage-Flag nicht gesetzt
+                            // ═══════════════════════════════════════════════════════════
+                            if (!localStorage.getItem('abrechnungsSync_v1_done')) {
+                                const syncAbrechnungEinmalig = async () => {
+                                    const EXCEL_NRS = new Set([
+                                        '111111111','260368754','202519257','251065771','251266658',
+                                        '260469320','260469499','260469557','260469095','260469540',
+                                        '260469344','250360650','260469389','260469272','260469246',
+                                        '260368543','260368496','11111111','250360652','202315444',
+                                        'engel','260469448','251266661','260368852','260469082',
+                                        '260469031','260469192','260368276','260469329','260167249',
+                                        '260368846','251065772','250662773','260469483','260469388',
+                                        '260569919','260469652','260368847','250662978','202518951',
+                                        '250863885','260368849','260569905','260368848','260368393',
+                                        '260469350','260469484','260368999','260469550','260469747',
+                                        '260469576','251166285','260469581','260570096','260469390',
+                                        '260469485','260570145','260469486','260570199','260469304',
+                                        '260569852','260670515','260570177',
+                                    ]);
+                                    const EXCEL_ADDRS = new Set([
+                                        'test','hauptstrasse 6, 7231 pragg-jenaz',
+                                        'bodenfeldstrasse 5, 8902 urdorf','solariastrasse, 7260 davos dorf',
+                                        'im pantli, 8200 schaffhausen','zürichstrasse 13, 8610 uster',
+                                        'wiesenstrasse 8, 8952 schlieren','breitistrasse, 8606 greifensee',
+                                        'segelhofstrasse, 5405 dättwil ag','im eigeli 13, 8700 küsnacht zh',
+                                        'bahnhofstrasse 26 8595 altnau','via prati, 6855 stabio',
+                                        'zweifelstrasse 5, 8957 spreitenbach','churerstrasse 156, pfäffikon sz',
+                                        'zürichstrasse 13, uster / leutenegger','grüninherstraase, ottikon',
+                                        'rebhaldenstrasse 31 herrliberg','flurstrasse, 8047 zürich',
+                                        'seewies, 8594 güttingen','witellikerstrasse 47, 8702 zollikon',
+                                        'stettemerstrasse 150, 8207 schaffhausen',
+                                        'st. wendelinstrasse 7, 8640 rappersil',
+                                        'im gsteig 6, 8713 uerikon','bahnhofstrasse 66, 8803 rüschlikon',
+                                        'kilchbergstrasse 12, 8134 adliswil','bergstrasse 6, 8700 küsnacht zh',
+                                        'chäsi, gams','in den reben, männderdorf',
+                                        'im obersteig, einsiedeln','unterdorfstrasse 18, 4415 lausen',
+                                        'chäppeliweg 4 sursee','forrhölzlistrasse 8, 8307 effretikon',
+                                        'lehenmattstrasse 83, 4052 basel',
+                                        'torggel schädler parzelle 142 untervaz, 7204 untervaz',
+                                        '6262 langnau bei reiden','neumattstrasse 3, 5734 reinach ag',
+                                        'rankstrasse 35, basel','rennweg 53 zürich',
+                                        'müllerstrasse 7, 8004 zürich','grubenstrasse 49, 8045 zürich',
+                                        'mutschellenstrasse 125, 8038 zürich',
+                                        'oberallenbergstrasse 57, 8708 männedorf',
+                                        'neumattstrasse 15, 5000 aarau','7204 untervaz',
+                                        'ewiges wegli 20, 8302 kloten',
+                                        'wettingerstrasse 27, 5400 baden',
+                                        'maienweg 6, 9470 buchs sg',
+                                        'im chrummenacher 1, 8308 illnau',
+                                        'sternenstrasse 24, 8002 zürich',
+                                        'breitingerstrasse 16, 8002 zürich',
+                                        'untere lättenstrasse 9, geroldswil',
+                                        'surseestrasse 23, 6218 ettiswil',
+                                    ]);
+                                    const cleanNr = (raw) => {
+                                        if (!raw) return '';
+                                        return raw.trim().replace(/^(?:\d{1,2}\/)+/,'').trim().toLowerCase();
+                                    };
+                                    const { getDocs, collection: col, updateDoc, doc: docRef } = window.FirebaseSDK;
+                                    const snap = await getDocs(col(db,'artifacts',appId,'public','data','calentries'));
+                                    const nowIso = new Date().toISOString();
+                                    let count = 0;
+                                    for (const d of snap.docs) {
+                                        const data = d.data();
+                                        if (data.doneAt) continue; // bereits markiert
+                                        const nr   = cleanNr(data.auftragsNr || '');
+                                        const addr = (data.address || '').trim().toLowerCase();
+                                        const matchNr   = nr   && EXCEL_NRS.has(nr);
+                                        const matchAddr = addr && EXCEL_ADDRS.has(addr);
+                                        if (matchNr || matchAddr) {
+                                            await updateDoc(docRef(db,'artifacts',appId,'public','data','calentries',d.id), { doneAt: nowIso });
+                                            count++;
+                                        }
+                                    }
+                                    console.log(`[Sync] ${count} Kalendereinträge als Erledigt markiert.`);
+                                    localStorage.setItem('abrechnungsSync_v1_done', '1');
+                                };
+                                syncAbrechnungEinmalig().catch(e => console.warn('[Sync Fehler]', e));
+                            }
+                            // ═══════════════════════════════════════════════════════════
                         }
                     });
                 };
