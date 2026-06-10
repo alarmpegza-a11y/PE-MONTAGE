@@ -601,8 +601,8 @@
             wsData.push(['Erstellt: ' + today + '    |    Aufträge: ' + entries.length]);
             wsData.push([]); // blank row
 
-            // Header row
-            wsData.push(['#', 'DATUM', 'KUNDE', 'AUFTRAGSNR.', 'ADRESSE', 'STATUS', 'ABGERECHNET AM']);
+            // Header row — 8 Spalten inkl. MEMO
+            wsData.push(['#', 'DATUM', 'KUNDE', 'AUFTRAGSNR.', 'ADRESSE', 'MEMO', 'STATUS', 'ABGERECHNET AM']);
 
             // Data rows
             entries.forEach((entry, i) => {
@@ -619,6 +619,7 @@
                     entry.customer || '',
                     cleanAuftragsNr(entry.auftragsNr || ''),
                     entry.address || '',
+                    entry.memo || '',
                     isAbgerechnet ? '✓ ABGERECHNET' : '✓ FERTIG',
                     billedDate,
                 ]);
@@ -634,21 +635,22 @@
             // ── Create worksheet ────────────────────────────────────────
             const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-            // Column widths
+            // Column widths — 8 Spalten
             ws['!cols'] = [
                 { wch: 4 },   // #
                 { wch: 12 },  // Datum
-                { wch: 32 },  // Kunde
+                { wch: 30 },  // Kunde
                 { wch: 20 },  // AuftragsNr
-                { wch: 40 },  // Adresse
+                { wch: 36 },  // Adresse
+                { wch: 30 },  // Memo
                 { wch: 16 },  // Status
                 { wch: 18 },  // Abgerechnet am
             ];
 
-            // Merge title row across all 7 cols
+            // Merge title row across all 8 cols
             ws['!merges'] = [
-                { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },
-                { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } },
+                { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } },
+                { s: { r: 1, c: 0 }, e: { r: 1, c: 7 } },
             ];
 
             // ── Styling via cell objects ────────────────────────────────
@@ -661,8 +663,8 @@
                 };
             }
 
-            // Header row is row index 3 (0-based)
-            const headerCols = ['A', 'B', 'C', 'D', 'E', 'F', 'G'];
+            // Header row is row index 3 (0-based) — jetzt 8 Spalten A–H
+            const headerCols = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
             headerCols.forEach(col => {
                 const cellRef = col + '4';
                 if (ws[cellRef]) {
@@ -683,17 +685,22 @@
                 const isAbgerechnet = billedIds.has(entry.id);
                 const isEven = i % 2 === 0;
                 const rowFill = isAbgerechnet
-                    ? '0F5132'  // dark green bg for billed
+                    ? '0F5132'
                     : isEven ? 'F8FAFC' : 'FFFFFF';
                 const textColor = isAbgerechnet ? 'FFFFFF' : '1E293B';
 
                 headerCols.forEach(col => {
-                    const cellRef = col + (rowIdx + 1); // +1 for 1-based
+                    const cellRef = col + (rowIdx + 1);
                     if (ws[cellRef]) {
+                        // Memo-Spalte (F) bekommt gelb-orangenen Ton wenn Inhalt vorhanden
+                        const isMemoCol = col === 'F';
+                        const hasMemo = !!(entry.memo);
+                        const memoFill = !isAbgerechnet && isMemoCol && hasMemo ? 'FFFBEB' : rowFill;
+                        const memoTextColor = !isAbgerechnet && isMemoCol && hasMemo ? '92400E' : textColor;
                         ws[cellRef].s = {
-                            font: { sz: 10, color: { rgb: textColor }, bold: col === 'C' || col === 'D' },
-                            fill: { fgColor: { rgb: rowFill } },
-                            alignment: { vertical: 'center', wrapText: false },
+                            font: { sz: 10, color: { rgb: memoTextColor }, bold: col === 'C' || col === 'D', italic: isMemoCol && hasMemo },
+                            fill: { fgColor: { rgb: memoFill } },
+                            alignment: { vertical: 'center', wrapText: isMemoCol },
                             border: {
                                 bottom: { style: 'hair', color: { rgb: 'E2E8F0' } },
                             },
@@ -709,7 +716,7 @@
             XLSX.writeFile(wb, filename);
         };
 
-        function BillingPanel({ finishedEntries, onClose, appId }) {
+        function BillingPanel({ finishedEntries, onClose, appId, calEntries }) {
             const [activeTab, setActiveTab] = useState('PE');
             const [selected, setSelected] = useState(new Set());
             const [pdfLoading, setPdfLoading] = useState(false);
@@ -773,7 +780,22 @@
             };
 
             const exportExcel = () => {
-                try { generateBillingExcel(finishedEntries, activeTab, billedIds); }
+                try {
+                    // Memo aus calEntries nachladen fuer Eintraege ohne Memo
+                    const enriched = finishedEntries.map(entry => {
+                        if (entry.memo) return entry;
+                        const calList = calEntries || [];
+                        const entryAufnr = cleanAuftragsNr(entry.auftragsNr || '');
+                        const entryAddr = (entry.address || '').trim().toLowerCase();
+                        const match = calList.find(c => {
+                            const cAufnr = cleanAuftragsNr(c.auftragsNr || '');
+                            const cAddr = (c.address || '').trim().toLowerCase();
+                            return (entryAufnr && cAufnr && entryAufnr === cAufnr) || (entryAddr && cAddr && entryAddr === cAddr);
+                        });
+                        return match ? {...entry, memo: match.memo || ''} : entry;
+                    });
+                    generateBillingExcel(enriched, activeTab, billedIds);
+                }
                 catch(e) { alert('Excel Fehler: '+e.message); }
             };
 
@@ -1427,17 +1449,6 @@
                 if (!payload.calType) payload.calType=activeCalType;
                 if (payload.colorOverride===undefined) payload.colorOverride=null;
                 await setDoc(doc(db,'artifacts',appId,'public','data','calentries',id), payload);
-                // ── Automatisch in Admin-Dashboard (objects) eintragen ──
-                const objId = `obj-cal-${id}`;
-                const eleMatch = (payload.memo||'').match(/(\d+)\s*ELE/i);
-                const target = payload.target ? parseInt(payload.target) : (eleMatch ? parseInt(eleMatch[1]) : 1);
-                const houseInfo = (payload.memo||'').replace(/\d+\s*ELE/gi,'').replace(/\bGIS\b/gi,'').replace(/[-–]\s*$/,'').trim() || 'Gesamtmontage';
-                await setDoc(doc(db,'artifacts',appId,'public','data','objects',objId), {
-                    id:objId, name:payload.address||payload.customer, customer:payload.customer||'',
-                    address:payload.address||'', houseInfo, auftragsNr:payload.auftragsNr||'',
-                    target, current:0, lastRemaining:null, blockReason:null,
-                    deliveryDate:new Date().toISOString(), status:'active', history:[], calEntryId:id
-                });
                 setEditCalEntry(null); setShowColorPicker(false);
             };
 
@@ -1488,20 +1499,7 @@
                 }
                 if (newEntries.length>0) {
                     const { db, doc, setDoc } = window.FirebaseSDK;
-                    for (const e of newEntries) {
-                        await setDoc(doc(db,'artifacts',appId,'public','data','calentries',e.id),e);
-                        // Automatisch in Admin-Dashboard (objects) eintragen
-                        const objId = `obj-cal-${e.id}`;
-                        const eleMatch = (e.memo||'').match(/(\d+)\s*ELE/i);
-                        const impTarget = e.target ? parseInt(e.target) : (eleMatch ? parseInt(eleMatch[1]) : 1);
-                        const houseInfo = (e.memo||'').replace(/\d+\s*ELE/gi,'').replace(/GIS/gi,'').replace(/[-–]\s*$/,'').trim() || 'Gesamtmontage';
-                        await setDoc(doc(db,'artifacts',appId,'public','data','objects',objId), {
-                            id:objId, name:e.address||e.customer, customer:e.customer||'',
-                            address:e.address||'', houseInfo, auftragsNr:e.auftragsNr||'',
-                            target:impTarget, current:0, lastRemaining:null, blockReason:null,
-                            deliveryDate:new Date().toISOString(), status:'active', history:[], calEntryId:e.id
-                        });
-                    }
+                    for (const e of newEntries) await setDoc(doc(db,'artifacts',appId,'public','data','calentries',e.id),e);
                 }
                 setCalImportText(''); setShowCalImport(false); setCalImportResult(newEntries.length);
             };
@@ -1548,17 +1546,6 @@
                     memo:item.memo, auftragsNr:item.auftragsNr, target:item.target||0,
                     deliveryDate:startDateStr, endDate:isMultiDay?endDateStr:startDateStr,
                     image:null, calType:activeCalType, colorOverride:null, createdAt:new Date().toISOString(), fromStandby:item.id,
-                });
-                // Automatisch in Admin-Dashboard (objects) eintragen
-                const objId = `obj-cal-${id}`;
-                const eleMatch = (item.memo||'').match(/(\d+)\s*ELE/i);
-                const target = item.target ? parseInt(item.target) : (eleMatch ? parseInt(eleMatch[1]) : 1);
-                const houseInfo = (item.memo||'').replace(/\d+\s*ELE/gi,'').replace(/GIS/gi,'').replace(/[-–]\s*$/,'').trim() || 'Gesamtmontage';
-                await setDoc(doc(db,'artifacts',appId,'public','data','objects',objId), {
-                    id:objId, name:item.address||item.customer, customer:item.customer||'',
-                    address:item.address||'', houseInfo, auftragsNr:item.auftragsNr||'',
-                    target, current:0, lastRemaining:null, blockReason:null,
-                    deliveryDate:new Date().toISOString(), status:'active', history:[], calEntryId:id
                 });
                 setShowStandbyPicker(false);
             };
@@ -1761,7 +1748,7 @@
                     </div>
 
                     {showGlobalSearch && <GlobalSearchModal calEntries={calEntries} onClose={()=>setShowGlobalSearch(false)} onJumpToEntry={handleJumpToEntry}/>}
-                    {showBillingPanel && <BillingPanel finishedEntries={finishedObjects} onClose={()=>setShowBillingPanel(false)} appId={appId}/>}
+                    {showBillingPanel && <BillingPanel finishedEntries={finishedObjects} onClose={()=>setShowBillingPanel(false)} appId={appId} calEntries={calEntries}/>}
                     {showStandbyPicker && <StandbyPicker appId={appId} onClose={()=>setShowStandbyPicker(false)} onInsert={(item,start,end)=>{insertStandbyItem(item,start,end);}} defaultDate={toLocalDateStr(days[0])}/>}
                     {verschiebenEntry && <VerschiebenModal entry={verschiebenEntry} onClose={()=>setVerschiebenEntry(null)} onSave={handleVerschieben}/>}
 
@@ -2107,7 +2094,23 @@
                 } else {
                     if (workerStatusMode==='finished') {
                         const finishedId = `fin-${obj.id}`;
-                        await setDoc(doc(db,'artifacts',appId,'public','data','finishedjobs',finishedId), {...obj,id:finishedId,originalId:obj.id,finishedAt:now,status:'finished'});
+                        // Memo aus passendem calentry holen (Abgleich via auftragsNr oder Adresse)
+                        const objAufnr = cleanAuftragsNr(obj.auftragsNr || '');
+                        const objAddr = (obj.address || '').trim().toLowerCase();
+                        const matchingCal = calEntries.find(e => {
+                            const calAufnr = cleanAuftragsNr(e.auftragsNr || '');
+                            const calAddr = (e.address || '').trim().toLowerCase();
+                            return (objAufnr && calAufnr && objAufnr === calAufnr) || (objAddr && calAddr && objAddr === calAddr);
+                        });
+                        const memoFromCal = matchingCal ? (matchingCal.memo || '') : '';
+                        await setDoc(doc(db,'artifacts',appId,'public','data','finishedjobs',finishedId), {
+                            ...obj,
+                            id: finishedId,
+                            originalId: obj.id,
+                            finishedAt: now,
+                            status: 'finished',
+                            memo: obj.memo || memoFromCal,
+                        });
                         await deleteDoc(doc(db,'artifacts',appId,'public','data','objects',obj.id));
                     } else {
                         let updates = {history:[{date:now,mode:workerStatusMode,detail:workerStatusMode==='blocked'?workerBlockReason:workerRemaining},...(obj.history||[])]};
