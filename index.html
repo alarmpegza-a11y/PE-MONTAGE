@@ -467,7 +467,7 @@
         };
 
         const generateBillingPDF = (entriesRaw, firma, billedIds) => {
-            const entries = [...entriesRaw].sort((a,b) => { const da=new Date(a.finishedAt||a.createdAt||a.deliveryDate||0); const db2=new Date(b.finishedAt||b.createdAt||b.deliveryDate||0); return da-db2; });
+            const entries = [...entriesRaw].sort((a,b) => { const da=new Date(a.deliveryDate||a.finishedAt||0); const db2=new Date(b.deliveryDate||b.finishedAt||0); return da-db2; });
             return new Promise((resolve) => {
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
@@ -506,7 +506,7 @@
                     doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(0,0,0);
                     doc.text(String(i+1),col.nr,y);
                     doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(60,60,60);
-                    doc.text(entry.finishedAt ? formatDate(entry.finishedAt) : formatDate(entry.createdAt||entry.deliveryDate), col.datum, y);
+                    doc.text(formatDate(entry.deliveryDate||entry.finishedAt||entry.createdAt), col.datum, y);
                     doc.setFont('helvetica','bold'); doc.setFontSize(8.5); doc.setTextColor(0,0,0);
                     const kundeText=(entry.customer||'').length>30?(entry.customer||'').substring(0,30)+'…':(entry.customer||'');
                     doc.text(kundeText,col.kunde,y);
@@ -609,7 +609,7 @@
         };
 
         const generateBillingExcel = (entriesRaw, firma, billedIds) => {
-            const entries = [...entriesRaw].sort((a,b) => { const da=new Date(a.finishedAt||a.createdAt||a.deliveryDate||0); const db2=new Date(b.finishedAt||b.createdAt||b.deliveryDate||0); return da-db2; });
+            const entries = [...entriesRaw].sort((a,b) => { const da=new Date(a.deliveryDate||a.finishedAt||0); const db2=new Date(b.deliveryDate||b.finishedAt||0); return da-db2; });
             if (!window.XLSX) { alert('Excel-Bibliothek nicht geladen.'); return; }
             const XLSX = window.XLSX;
             const firmaLabel = firma === 'PE' ? 'PE-Fabrikation' : 'FA-Bauservice';
@@ -632,9 +632,7 @@
                 const billedDate = isAbgerechnet
                     ? (entry[`${firma}date`] ? new Date(entry[`${firma}date`]).toLocaleDateString('de-DE') : today)
                     : '';
-                const datum = entry.finishedAt
-                    ? new Date(entry.finishedAt).toLocaleDateString('de-DE')
-                    : (entry.createdAt ? new Date(entry.createdAt).toLocaleDateString('de-DE') : '');
+                const datum = entry.deliveryDate ? new Date(entry.deliveryDate).toLocaleDateString('de-DE') : (entry.finishedAt ? new Date(entry.finishedAt).toLocaleDateString('de-DE') : '');
                 wsData.push([
                     i + 1,
                     datum,
@@ -1391,6 +1389,9 @@
             const [erledigtConfirmEntry, setErledigtConfirmEntry] = useState(null);
             const [showOffeneListePanel, setShowOffeneListePanel] = useState(false);
             const [offenePdfLoading, setOffenePdfLoading] = useState(false);
+            const [multiSelectMode, setMultiSelectMode] = useState(false);
+            const [multiSelected, setMultiSelected] = useState(new Set());
+            const [multiErledigtLoading, setMultiErledigtLoading] = useState(false);
 
             const days = getCalWeekDays(calWeek);
             const DAY_NAMES = ['Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
@@ -1499,6 +1500,41 @@
                 await updateDoc(doc(db,'artifacts',appId,'public','data','calentries',entryId), { deliveryDate: newStart, endDate: newEnd });
                 setVerschiebenEntry(null);
                 setCalWeek(new Date(newStart));
+            };
+
+            const markMultiErledigt = async () => {
+                if (multiSelected.size === 0) return;
+                setMultiErledigtLoading(true);
+                const { db, doc, setDoc, updateDoc, deleteDoc } = window.FirebaseSDK;
+                const now = new Date().toISOString();
+                for (const id of multiSelected) {
+                    const entry = calEntries.find(e => e.id === id);
+                    if (!entry) continue;
+                    // 1. calentry als erledigt markieren
+                    await updateDoc(doc(db,'artifacts',appId,'public','data','calentries',id), { doneAt: now });
+                    // 2. In finishedjobs speichern
+                    const finishedId = `fin-cal-${id}`;
+                    await setDoc(doc(db,'artifacts',appId,'public','data','finishedjobs',finishedId), {
+                        id: finishedId, originalCalId: id,
+                        customer: entry.customer || '', address: entry.address || '',
+                        memo: entry.memo || '', auftragsNr: entry.auftragsNr || '',
+                        target: parseInt(entry.target)||0, deliveryDate: entry.deliveryDate || now,
+                        finishedAt: now, status: 'finished', calType: entry.calType || 'montage',
+                    });
+                    // 3. Passendes objects-Dokument löschen
+                    const entryAufnr = cleanAuftragsNr(entry.auftragsNr || '');
+                    const entryAddr = (entry.address || '').trim().toLowerCase();
+                    for (const obj of (objects || [])) {
+                        const objAufnr = cleanAuftragsNr(obj.auftragsNr || '');
+                        const objAddr = (obj.address || '').trim().toLowerCase();
+                        if ((entryAufnr && objAufnr && entryAufnr === objAufnr) || (entryAddr && objAddr && entryAddr === objAddr)) {
+                            await deleteDoc(doc(db,'artifacts',appId,'public','data','objects',obj.id));
+                        }
+                    }
+                }
+                setMultiSelected(new Set());
+                setMultiSelectMode(false);
+                setMultiErledigtLoading(false);
             };
 
             const markCalEntryDone = async (entry) => {
@@ -1784,18 +1820,30 @@
                 const badgeBg = isStart ? border : (border + 'cc');
                 return (
                     <div
-                        className={`cal-card-new${deleteMode?' delete-mode-card':''}${isHighlighted?' search-highlight':''}`}
-                        style={{ background: e.doneAt ? '#dcfce7' : bg, borderLeftColor: e.doneAt ? '#16a34a' : border, borderTopColor: (e.doneAt ? '#16a34a' : border)+'44', borderRightColor: (e.doneAt ? '#16a34a' : border)+'33', borderBottomColor: (e.doneAt ? '#16a34a' : border)+'33', color: e.doneAt ? '#14532d' : textCol, opacity: e.doneAt ? 0.88 : 1 }}
+                        className={`cal-card-new${deleteMode?' delete-mode-card':''}${isHighlighted?' search-highlight':''}${multiSelectMode&&multiSelected.has(e.id)?' search-highlight':''}`}
+                        style={{ background: e.doneAt ? '#dcfce7' : bg, borderLeftColor: e.doneAt ? '#16a34a' : (multiSelectMode&&multiSelected.has(e.id)?'#10b981':border), borderTopColor: (e.doneAt ? '#16a34a' : border)+'44', borderRightColor: (e.doneAt ? '#16a34a' : border)+'33', borderBottomColor: (e.doneAt ? '#16a34a' : border)+'33', color: e.doneAt ? '#14532d' : textCol, opacity: e.doneAt ? 0.88 : 1, outline: multiSelectMode&&multiSelected.has(e.id)?'2px solid #10b981':'none' }}
                         onClick={(ev) => {
                             ev.stopPropagation();
                             if (deleteMode) { if(confirm(`"${e.customer}" löschen?`)) deleteCalEntry(e.id); }
+                            else if (multiSelectMode) {
+                                setMultiSelected(prev => {
+                                    const next = new Set(prev);
+                                    next.has(e.id) ? next.delete(e.id) : next.add(e.id);
+                                    return next;
+                                });
+                            }
                             else if (copyEntry) { }
                             else { setEditCalEntry({...e,endDate:e.endDate||e.deliveryDate,colorOverride:e.colorOverride!==undefined?e.colorOverride:null}); setShowColorPicker(false); }
                         }}
                     >
-                        {e.image && !deleteMode && <div className="cal-card-photo-dot" title="Foto vorhanden"></div>}
-                        {e.doneAt && !deleteMode && <div className="erledigt-stamp">✓ Erledigt</div>}
+                        {e.image && !deleteMode && !multiSelectMode && <div className="cal-card-photo-dot" title="Foto vorhanden"></div>}
+                        {e.doneAt && !deleteMode && !multiSelectMode && <div className="erledigt-stamp">✓ Erledigt</div>}
                         {deleteMode && <div className="delete-overlay-x">✕</div>}
+                        {multiSelectMode && (
+                            <div style={{ position:'absolute', top:4, left:4, width:16, height:16, borderRadius:4, background: multiSelected.has(e.id)?'#10b981':'rgba(255,255,255,0.7)', border:`2px solid ${multiSelected.has(e.id)?'#059669':'#94a3b8'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:900, color:'#fff', zIndex:5 }}>
+                                {multiSelected.has(e.id) ? '✓' : ''}
+                            </div>
+                        )}
                         {(e.colorOverride!==null&&e.colorOverride!==undefined)&&!e.image&&!deleteMode && (
                             <div title="Farbe manuell" style={{ position:'absolute', top:4, right:4, width:5, height:5, borderRadius:'50%', background:border, border:'1px solid rgba(0,0,0,0.15)' }}></div>
                         )}
@@ -2114,7 +2162,10 @@
                             <button onClick={()=>setShowCalImport(true)} style={{ background:'#3b82f6', border:'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}><Icon name="upload" size={12}/>Import</button>
                             <button onClick={triggerWeekPDF} style={{ background:'#475569', border:'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}><Icon name="download" size={12}/>A3 PDF</button>
                             <button onClick={()=>setShowOffeneListePanel(true)} style={{ background:'linear-gradient(135deg,#7c3aed,#6d28d9)', border:'1px solid rgba(124,58,237,0.5)', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}><Icon name="send" size={12}/>Offen Liste</button>
-                            <button onClick={()=>{setDeleteMode(!deleteMode);setCopyEntry(null);}} style={{ background:deleteMode?'#ef4444':'#334155', border:deleteMode?'2px solid #fca5a5':'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                            <button onClick={()=>{setMultiSelectMode(!multiSelectMode);setMultiSelected(new Set());setDeleteMode(false);setCopyEntry(null);}} style={{ background:multiSelectMode?'#10b981':'#334155', border:multiSelectMode?'2px solid #6ee7b7':'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+                                <Icon name={multiSelectMode?"check-square":"check-square"} size={12}/>{multiSelectMode?`${multiSelected.size} Ausgewählt`:'Mehrfach'}
+                            </button>
+                            <button onClick={()=>{setDeleteMode(!deleteMode);setCopyEntry(null);setMultiSelectMode(false);setMultiSelected(new Set());}} style={{ background:deleteMode?'#ef4444':'#334155', border:deleteMode?'2px solid #fca5a5':'none', borderRadius:8, padding:'5px 12px', color:'#fff', fontSize:8, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
                                 <Icon name={deleteMode?"x":"trash-2"} size={12}/>{deleteMode?'Fertig':'Löschen'}
                             </button>
                         </div>
@@ -2125,6 +2176,22 @@
                     </div>
 
                     {deleteMode && <div style={{ background:'#ef4444', padding:'6px 16px', textAlign:'center', fontSize:10, fontWeight:900, color:'#fff', textTransform:'uppercase', letterSpacing:1 }}>🗑 LÖSCHMODUS — Auftrag anklicken zum löschen</div>}
+                    {multiSelectMode && (
+                        <div style={{ background:'#059669', padding:'6px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:10, fontWeight:900, color:'#fff' }}>
+                            <span>☑ MEHRFACHAUSWAHL — Aufträge anklicken zum markieren ({multiSelected.size} ausgewählt)</span>
+                            <div style={{ display:'flex', gap:8 }}>
+                                {multiSelected.size > 0 && (
+                                    <button
+                                        onClick={()=>{ if(window.confirm(`${multiSelected.size} Aufträge als Erledigt markieren? Diese verschwinden aus dem Dashboard.`)) markMultiErledigt(); }}
+                                        style={{ background:'#fff', border:'none', borderRadius:6, padding:'4px 14px', color:'#059669', fontSize:9, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}
+                                    >
+                                        {multiErledigtLoading ? '...' : `✓ ${multiSelected.size} ERLEDIGT MARKIEREN`}
+                                    </button>
+                                )}
+                                <button onClick={()=>{setMultiSelectMode(false);setMultiSelected(new Set());}} style={{ background:'rgba(0,0,0,0.2)', border:'none', borderRadius:6, padding:'4px 12px', color:'#fff', cursor:'pointer', fontSize:9, fontWeight:900 }}>Abbrechen</button>
+                            </div>
+                        </div>
+                    )}
                     {copyEntry && (
                         <div style={{ background:'#f59e0b', padding:'6px 16px', display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:10, fontWeight:900, color:'#fff' }}>
                             <span>📋 KOPIEREN: „{copyEntry.customer}" — Tag anklicken</span>
@@ -2364,26 +2431,65 @@
                             onSnapshot(collection(db,'artifacts',appId,'public','data','monteurs'), (s)=>setMonteurs(s.docs.map(d=>({id:d.id,...d.data()}))));
                             onSnapshot(collection(db,'artifacts',appId,'public','data','calentries'), (s)=>setCalEntries(s.docs.map(d=>({id:d.id,...d.data()}))));
 
-                            // ═══════════════════════════════════════════════════════════
-                            // EINMALIGER RESET: Alle doneAt von automatischem Sync löschen
-                            // Läuft einmal, danach deaktiviert via localStorage
-                            // ═══════════════════════════════════════════════════════════
-                            if (!localStorage.getItem('doneAt_reset_v1_done')) {
-                                const resetDoneAt = async () => {
+                            // ═══ EINMALIGE WIEDERHERSTELLUNG — NUR MARKIEREN, NIE LÖSCHEN ═══
+                            if (!localStorage.getItem('restore_erledigt_v1')) {
+                                (async () => {
+                                    const EXCEL_NRS = new Set([
+                                        '260267693','251266656','250561902','202212148','251266654','251266655',
+                                        '260267855','260368495','260368754','260368751','260469334','260267857',
+                                        '240957898','260167588','202519257','251065771','251266658','260469320',
+                                        '260469499','260469557','260469095','260469540','260469344','250360650',
+                                        '260469389','260469272','260469246','260368543','260368496','11111111',
+                                        '250360652','202315444','engel','260469448','251266661','260368852',
+                                        '260469082','260469031','260469192','260368276','260469329','260167249',
+                                        '260368846','251065772','250662773','260469483','260469388','260569919',
+                                        '260469652','260368847','250662978','202518951','250863885','260368849',
+                                        '260569905','260368848','260368393','260469350','260469484','260368999',
+                                        '260469550','260469747','260469576','251166285','260469581','260570096',
+                                        '260469390','260469485','260570145','260469577','260469304','260469486',
+                                        '260570199','111111111','260569852','260469568','260570177','260670515',
+                                    ]);
+                                    const EXCEL_NO_NR = [
+                                        { date:'2026-04-20', addr:'via prati', kunde:'sampietro' },
+                                        { date:'2026-04-21', addr:'churerstrasse 156', kunde:'ziegler' },
+                                        { date:'2026-04-21', addr:'uster / leutenegger', kunde:'leutenegger' },
+                                        { date:'2026-04-22', addr:'ottikon', kunde:'leutenegger' },
+                                    ];
+                                    const cleanNr = (raw) => {
+                                        if (!raw) return '';
+                                        let s = raw.trim();
+                                        s = s.replace(/^(?:\d{1,2}\/)+/,'').trim();
+                                        s = s.replace(/^[\d/\s]+ELE\//i,'').trim();
+                                        s = s.replace(/\/[A-Za-z]{1,5}$/,'').trim();
+                                        return s.toLowerCase();
+                                    };
                                     const { getDocs, collection: col2, updateDoc, doc: docRef2 } = window.FirebaseSDK;
                                     const snap = await getDocs(col2(db,'artifacts',appId,'public','data','calentries'));
+                                    const nowIso = new Date().toISOString();
                                     let count = 0;
                                     for (const d of snap.docs) {
                                         const data = d.data();
-                                        if (data.doneAt) {
-                                            await updateDoc(docRef2(db,'artifacts',appId,'public','data','calentries',d.id), { doneAt: null });
+                                        if (data.doneAt) continue;
+                                        const calNr    = cleanNr(data.auftragsNr || '');
+                                        const calAddr  = (data.address || '').trim().toLowerCase();
+                                        const calDate  = (data.deliveryDate || '').substring(0,10);
+                                        const calKunde = (data.customer || '').trim().toLowerCase();
+                                        let match = calNr && EXCEL_NRS.has(calNr);
+                                        if (!match) {
+                                            match = EXCEL_NO_NR.some(e =>
+                                                e.date === calDate &&
+                                                calAddr.includes(e.addr) &&
+                                                calKunde.includes(e.kunde)
+                                            );
+                                        }
+                                        if (match) {
+                                            await updateDoc(docRef2(db,'artifacts',appId,'public','data','calentries',d.id), { doneAt: nowIso });
                                             count++;
                                         }
                                     }
-                                    console.log(`[Reset] ${count} doneAt Felder gelöscht.`);
-                                    localStorage.setItem('doneAt_reset_v1_done', '1');
-                                };
-                                resetDoneAt().catch(e => console.warn('[Reset Fehler]', e));
+                                    console.log('[Restore] ' + count + ' wiederhergestellt.');
+                                    localStorage.setItem('restore_erledigt_v1', '1');
+                                })().catch(e => console.warn('[Restore Fehler]', e));
                             }
                             // ═══════════════════════════════════════════════════════════
 
