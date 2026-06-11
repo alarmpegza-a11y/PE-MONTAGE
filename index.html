@@ -466,7 +466,8 @@
             return map;
         };
 
-        const generateBillingPDF = (entries, firma, billedIds) => {
+        const generateBillingPDF = (entriesRaw, firma, billedIds) => {
+            const entries = [...entriesRaw].sort((a,b) => { const da=new Date(a.finishedAt||a.createdAt||a.deliveryDate||0); const db2=new Date(b.finishedAt||b.createdAt||b.deliveryDate||0); return da-db2; });
             return new Promise((resolve) => {
                 const { jsPDF } = window.jspdf;
                 const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
@@ -607,7 +608,8 @@
             });
         };
 
-        const generateBillingExcel = (entries, firma, billedIds) => {
+        const generateBillingExcel = (entriesRaw, firma, billedIds) => {
+            const entries = [...entriesRaw].sort((a,b) => { const da=new Date(a.finishedAt||a.createdAt||a.deliveryDate||0); const db2=new Date(b.finishedAt||b.createdAt||b.deliveryDate||0); return da-db2; });
             if (!window.XLSX) { alert('Excel-Bibliothek nicht geladen.'); return; }
             const XLSX = window.XLSX;
             const firmaLabel = firma === 'PE' ? 'PE-Fabrikation' : 'FA-Bauservice';
@@ -2363,87 +2365,28 @@
                             onSnapshot(collection(db,'artifacts',appId,'public','data','calentries'), (s)=>setCalEntries(s.docs.map(d=>({id:d.id,...d.data()}))));
 
                             // ═══════════════════════════════════════════════════════════
-                            // EINMALIGER SYNC: Aufträge aus Abrechnungsliste als Erledigt markieren
-                            // Wird nur ausgeführt wenn localStorage-Flag nicht gesetzt
+                            // EINMALIGER RESET: Alle doneAt von automatischem Sync löschen
+                            // Läuft einmal, danach deaktiviert via localStorage
                             // ═══════════════════════════════════════════════════════════
-                            if (!localStorage.getItem('abrechnungsSync_v1_done')) {
-                                const syncAbrechnungEinmalig = async () => {
-                                    const EXCEL_NRS = new Set([
-                                        '111111111','260368754','202519257','251065771','251266658',
-                                        '260469320','260469499','260469557','260469095','260469540',
-                                        '260469344','250360650','260469389','260469272','260469246',
-                                        '260368543','260368496','11111111','250360652','202315444',
-                                        'engel','260469448','251266661','260368852','260469082',
-                                        '260469031','260469192','260368276','260469329','260167249',
-                                        '260368846','251065772','250662773','260469483','260469388',
-                                        '260569919','260469652','260368847','250662978','202518951',
-                                        '250863885','260368849','260569905','260368848','260368393',
-                                        '260469350','260469484','260368999','260469550','260469747',
-                                        '260469576','251166285','260469581','260570096','260469390',
-                                        '260469485','260570145','260469486','260570199','260469304',
-                                        '260569852','260670515','260570177',
-                                    ]);
-                                    const EXCEL_ADDRS = new Set([
-                                        'test','hauptstrasse 6, 7231 pragg-jenaz',
-                                        'bodenfeldstrasse 5, 8902 urdorf','solariastrasse, 7260 davos dorf',
-                                        'im pantli, 8200 schaffhausen','zürichstrasse 13, 8610 uster',
-                                        'wiesenstrasse 8, 8952 schlieren','breitistrasse, 8606 greifensee',
-                                        'segelhofstrasse, 5405 dättwil ag','im eigeli 13, 8700 küsnacht zh',
-                                        'bahnhofstrasse 26 8595 altnau','via prati, 6855 stabio',
-                                        'zweifelstrasse 5, 8957 spreitenbach','churerstrasse 156, pfäffikon sz',
-                                        'zürichstrasse 13, uster / leutenegger','grüninherstraase, ottikon',
-                                        'rebhaldenstrasse 31 herrliberg','flurstrasse, 8047 zürich',
-                                        'seewies, 8594 güttingen','witellikerstrasse 47, 8702 zollikon',
-                                        'stettemerstrasse 150, 8207 schaffhausen',
-                                        'st. wendelinstrasse 7, 8640 rappersil',
-                                        'im gsteig 6, 8713 uerikon','bahnhofstrasse 66, 8803 rüschlikon',
-                                        'kilchbergstrasse 12, 8134 adliswil','bergstrasse 6, 8700 küsnacht zh',
-                                        'chäsi, gams','in den reben, männderdorf',
-                                        'im obersteig, einsiedeln','unterdorfstrasse 18, 4415 lausen',
-                                        'chäppeliweg 4 sursee','forrhölzlistrasse 8, 8307 effretikon',
-                                        'lehenmattstrasse 83, 4052 basel',
-                                        'torggel schädler parzelle 142 untervaz, 7204 untervaz',
-                                        '6262 langnau bei reiden','neumattstrasse 3, 5734 reinach ag',
-                                        'rankstrasse 35, basel','rennweg 53 zürich',
-                                        'müllerstrasse 7, 8004 zürich','grubenstrasse 49, 8045 zürich',
-                                        'mutschellenstrasse 125, 8038 zürich',
-                                        'oberallenbergstrasse 57, 8708 männedorf',
-                                        'neumattstrasse 15, 5000 aarau','7204 untervaz',
-                                        'ewiges wegli 20, 8302 kloten',
-                                        'wettingerstrasse 27, 5400 baden',
-                                        'maienweg 6, 9470 buchs sg',
-                                        'im chrummenacher 1, 8308 illnau',
-                                        'sternenstrasse 24, 8002 zürich',
-                                        'breitingerstrasse 16, 8002 zürich',
-                                        'untere lättenstrasse 9, geroldswil',
-                                        'surseestrasse 23, 6218 ettiswil',
-                                    ]);
-                                    const cleanNr = (raw) => {
-                                        if (!raw) return '';
-                                        return raw.trim().replace(/^(?:\d{1,2}\/)+/,'').trim().toLowerCase();
-                                    };
-                                    const { getDocs, collection: col, updateDoc, doc: docRef } = window.FirebaseSDK;
-                                    const snap = await getDocs(col(db,'artifacts',appId,'public','data','calentries'));
-                                    const nowIso = new Date().toISOString();
+                            if (!localStorage.getItem('doneAt_reset_v1_done')) {
+                                const resetDoneAt = async () => {
+                                    const { getDocs, collection: col2, updateDoc, doc: docRef2 } = window.FirebaseSDK;
+                                    const snap = await getDocs(col2(db,'artifacts',appId,'public','data','calentries'));
                                     let count = 0;
                                     for (const d of snap.docs) {
                                         const data = d.data();
-                                        if (data.doneAt) continue; // bereits markiert
-                                        const nr   = cleanNr(data.auftragsNr || '');
-                                        const addr = (data.address || '').trim().toLowerCase();
-                                        const matchNr   = nr   && EXCEL_NRS.has(nr);
-                                        const matchAddr = addr && EXCEL_ADDRS.has(addr);
-                                        if (matchNr || matchAddr) {
-                                            await updateDoc(docRef(db,'artifacts',appId,'public','data','calentries',d.id), { doneAt: nowIso });
+                                        if (data.doneAt) {
+                                            await updateDoc(docRef2(db,'artifacts',appId,'public','data','calentries',d.id), { doneAt: null });
                                             count++;
                                         }
                                     }
-                                    console.log(`[Sync] ${count} Kalendereinträge als Erledigt markiert.`);
-                                    localStorage.setItem('abrechnungsSync_v1_done', '1');
+                                    console.log(`[Reset] ${count} doneAt Felder gelöscht.`);
+                                    localStorage.setItem('doneAt_reset_v1_done', '1');
                                 };
-                                syncAbrechnungEinmalig().catch(e => console.warn('[Sync Fehler]', e));
+                                resetDoneAt().catch(e => console.warn('[Reset Fehler]', e));
                             }
                             // ═══════════════════════════════════════════════════════════
+
                         }
                     });
                 };
