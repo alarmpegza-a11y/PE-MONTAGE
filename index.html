@@ -33,6 +33,27 @@
         const auth = getAuth(app);
 
         window.FirebaseSDK = { db, auth, collection, doc, setDoc, onSnapshot, updateDoc, deleteDoc, query, addDoc, getDocs, signInAnonymously, onAuthStateChanged };
+
+        // ── PE-KALENDER App (zweites Firebase-Projekt) ──
+        try {
+            const { initializeApp: initApp2 } = await import("https://www.gstatic.com/firebasejs/11.1.0/firebase-app.js");
+            const { getFirestore: getFS2, collection: col2, doc: doc2, setDoc: setDoc2, updateDoc: updateDoc2, deleteDoc: deleteDoc2, getDocs: getDocs2, onSnapshot: onSnapshot2 } = await import("https://www.gstatic.com/firebasejs/11.1.0/firebase-firestore.js");
+            const peKalenderConfig = {
+                apiKey: "AIzaSyDStnUEu9A7reQUXBhVz5CrXxkmY4n2nOk",
+                authDomain: "pe-kalender-alle-gruppen.firebaseapp.com",
+                projectId: "pe-kalender-alle-gruppen",
+                storageBucket: "pe-kalender-alle-gruppen.firebasestorage.app",
+                messagingSenderId: "993655186874",
+                appId: "1:993655186874:web:068a06ce160cd611e1e983"
+            };
+            const app2 = initApp2(peKalenderConfig, 'pe-kalender');
+            const db2 = getFS2(app2);
+            window.PeKalenderSDK = { db: db2, col: col2, doc: doc2, setDoc: setDoc2, updateDoc: updateDoc2, deleteDoc: deleteDoc2, getDocs: getDocs2, onSnapshot: onSnapshot2 };
+            window.PeKalenderReady = true;
+        } catch(e2) {
+            console.warn('PE-KALENDER Firebase nicht verfügbar:', e2.message);
+            window.PeKalenderReady = false;
+        }
     </script>
 
     <style>
@@ -1378,6 +1399,215 @@
             );
         }
 
+        function SendToKalenderModal({ entry, onClose, onSent, appId, objects }) {
+            const [kalenderTeams, setKalenderTeams] = React.useState([]);
+            const [loading, setLoading] = React.useState(true);
+            const [selectedTeam, setSelectedTeam] = React.useState(null);
+            const [startDate, setStartDate] = React.useState((entry.deliveryDate||'').substring(0,10)||toLocalDateStr(new Date()));
+            const [endDate, setEndDate] = React.useState((entry.endDate||'').substring(0,10)||'');
+            const [keepOriginal, setKeepOriginal] = React.useState(false);
+            const [calType, setCalType] = React.useState('montage');
+            const [saving, setSaving] = React.useState(false);
+            const [done, setDone] = React.useState(false);
+
+            React.useEffect(() => {
+                if (!window.PeKalenderReady || !window.PeKalenderSDK) {
+                    setLoading(false); return;
+                }
+                const { db, col, onSnapshot } = window.PeKalenderSDK;
+                const unsub = onSnapshot(col(db, 'teams_config'), snap => {
+                    setKalenderTeams(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+                    setLoading(false);
+                });
+                return () => unsub();
+            }, []);
+
+            const genId2 = () => { try { return crypto.randomUUID(); } catch(e) { return Math.random().toString(36).slice(2)+Date.now().toString(36); } };
+
+            const doSend = async () => {
+                if (!selectedTeam) return;
+                setSaving(true);
+                try {
+                    const { db, col, doc, setDoc, deleteDoc } = window.PeKalenderSDK;
+                    const id = 'cal-' + genId2();
+                    const isMultiDay = !!(endDate && endDate > startDate);
+                    // Write to PE-KALENDER teams_cal collection
+                    await setDoc(doc(db, `teams_cal_${selectedTeam.id}`, id), {
+                        id,
+                        createdAt: new Date().toISOString(),
+                        isDone: false, isBilled: false,
+                        entryType: entry.entryType || 'LIEFERUNG',
+                        customer: entry.customer || '',
+                        address: entry.address || '',
+                        memo: entry.memo || '',
+                        auftragsNr: entry.auftragsNr || '',
+                        target: parseInt(entry.target) || 0,
+                        images: [], image: null,
+                        deliveryDate: startDate,
+                        endDate: isMultiDay ? endDate : null,
+                        isMultiDay,
+                        calType: calType,
+                        isProv: false,
+                        customStartLabel: '',
+                        fromMontageManager: true,
+                    });
+                    // If move (not keep): delete from PE-Montage calentries
+                    if (!keepOriginal) {
+                        const { db: db1, doc: doc1, deleteDoc: del1 } = window.FirebaseSDK;
+                        await del1(doc1(db1, 'artifacts', appId, 'public', 'data', 'calentries', entry.id));
+                        // Also delete matching object from dashboard
+                        const entryAufnr = cleanAuftragsNr(entry.auftragsNr || '');
+                        const entryAddr = (entry.address || '').trim().toLowerCase();
+                        for (const obj of (objects || [])) {
+                            const objAufnr = cleanAuftragsNr(obj.auftragsNr || '');
+                            const objAddr = (obj.address || '').trim().toLowerCase();
+                            if ((entryAufnr && objAufnr && entryAufnr === objAufnr) || (entryAddr && objAddr && entryAddr === objAddr)) {
+                                const { doc: d1, deleteDoc: dd1 } = window.FirebaseSDK;
+                                await dd1(d1(window.FirebaseSDK.db, 'artifacts', appId, 'public', 'data', 'objects', obj.id));
+                            }
+                        }
+                    }
+                    setDone(true);
+                    setTimeout(() => onSent(selectedTeam.name, keepOriginal), 800);
+                } catch(err) {
+                    alert('Fehler: ' + err.message);
+                }
+                setSaving(false);
+            };
+
+            const calTypeOptions = [
+                { key: 'montage',    label: '🔧 Montage',    color: '#2563eb', bg: 'rgba(37,99,235,0.15)', border: 'rgba(37,99,235,0.4)' },
+                { key: 'beplankung', label: '🏗 Beplankung', color: '#059669', bg: 'rgba(5,150,105,0.15)', border: 'rgba(5,150,105,0.4)' },
+                { key: 'ausflocken', label: '❄️ Ausflocken', color: '#b45309', bg: 'rgba(180,83,9,0.15)',  border: 'rgba(180,83,9,0.4)' },
+            ];
+
+            if (done) return (
+                <div style={{ position:'fixed', inset:0, zIndex:210, background:'rgba(10,15,28,0.95)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
+                    <div style={{ textAlign:'center', display:'flex', flexDirection:'column', alignItems:'center', gap:16 }}>
+                        <div style={{ width:72, height:72, background:'rgba(16,185,129,0.2)', border:'2px solid #10b981', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', fontSize:36 }}>✓</div>
+                        <div style={{ color:'#10b981', fontSize:18, fontWeight:900 }}>{keepOriginal ? `Kopiert nach: ${selectedTeam?.name}` : `Verschoben nach: ${selectedTeam?.name}`}</div>
+                        <div style={{ color:'#64748b', fontSize:11 }}>PE-KALENDER · {calTypeOptions.find(o=>o.key===calType)?.label}</div>
+                    </div>
+                </div>
+            );
+
+            return (
+                <div style={{ position:'fixed', inset:0, zIndex:210, background:'rgba(10,15,28,0.95)', backdropFilter:'blur(6px)', display:'flex', flexDirection:'column', overflowY:'auto' }}>
+                    {/* Header */}
+                    <div style={{ background:'linear-gradient(135deg,#1a2540,#1e3a5f)', padding:'16px 20px', borderBottom:'2px solid rgba(37,99,235,0.35)', flexShrink:0 }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                                <div style={{ width:40, height:40, borderRadius:12, background:'rgba(37,99,235,0.25)', border:'2px solid #3b82f6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 }}>⧉→</div>
+                                <div>
+                                    <div style={{ color:'#60a5fa', fontSize:9, fontWeight:900, textTransform:'uppercase', letterSpacing:2 }}>AN PE-KALENDER SENDEN</div>
+                                    <div style={{ color:'#fff', fontSize:14, fontWeight:900, textTransform:'uppercase' }}>{entry.customer}</div>
+                                    <div style={{ color:'#94a3b8', fontSize:10, marginTop:2 }}>{entry.address}</div>
+                                </div>
+                            </div>
+                            <button onClick={onClose} style={{ background:'rgba(255,255,255,0.08)', border:'none', borderRadius:10, width:34, height:34, cursor:'pointer', color:'#94a3b8', fontSize:16, display:'flex', alignItems:'center', justifyContent:'center' }}>✕</button>
+                        </div>
+                        {/* Keep/Move toggle */}
+                        <button onClick={() => setKeepOriginal(k => !k)} style={{ display:'flex', alignItems:'center', gap:8, background:keepOriginal?'rgba(16,185,129,0.15)':'rgba(239,68,68,0.12)', border:`1.5px solid ${keepOriginal?'rgba(16,185,129,0.4)':'rgba(239,68,68,0.4)'}`, borderRadius:10, padding:'7px 14px', cursor:'pointer', color:keepOriginal?'#10b981':'#f87171', fontSize:10, fontWeight:900, textTransform:'uppercase', letterSpacing:1 }}>
+                            <span style={{ fontSize:14 }}>{keepOriginal ? '🔗' : '✂️'}</span>
+                            {keepOriginal ? 'Kopieren (hier behalten)' : 'Verschieben (hier löschen)'}
+                        </button>
+                    </div>
+
+                    {/* Body */}
+                    <div style={{ flex:1, overflowY:'auto', padding:'16px 20px', display:'flex', flexDirection:'column', gap:16 }}>
+
+                        {/* Gruppe wählen */}
+                        <div>
+                            <div style={{ color:'#60a5fa', fontSize:9, fontWeight:900, textTransform:'uppercase', letterSpacing:1, marginBottom:10 }}>1. Gruppe in PE-KALENDER wählen</div>
+                            {!window.PeKalenderReady && (
+                                <div style={{ background:'rgba(239,68,68,0.1)', border:'1px solid rgba(239,68,68,0.3)', borderRadius:10, padding:'12px 16px', color:'#f87171', fontSize:11, fontWeight:700 }}>
+                                    ⚠️ PE-KALENDER App ist nicht erreichbar. Bitte Internetverbindung prüfen.
+                                </div>
+                            )}
+                            {loading && <div style={{ color:'#64748b', fontSize:11, padding:16 }}>⏳ Lade Gruppen...</div>}
+                            {!loading && window.PeKalenderReady && kalenderTeams.length === 0 && (
+                                <div style={{ color:'#64748b', fontSize:11, padding:16 }}>Keine Gruppen in PE-KALENDER gefunden.</div>
+                            )}
+                            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                                {kalenderTeams.map(t => (
+                                    <div key={t.id} onClick={() => setSelectedTeam(t)}
+                                        style={{ background:selectedTeam?.id===t.id?'rgba(59,130,246,0.15)':'rgba(255,255,255,0.04)', border:`2px solid ${selectedTeam?.id===t.id?'#3b82f6':'rgba(255,255,255,0.08)'}`, borderRadius:12, padding:'12px 16px', cursor:'pointer', display:'flex', alignItems:'center', gap:12, transition:'all 0.15s' }}>
+                                        <div style={{ width:14, height:14, borderRadius:'50%', background:t.color||'#3b82f6', flexShrink:0 }}></div>
+                                        <div style={{ flex:1 }}>
+                                            <div style={{ color:'#fff', fontSize:13, fontWeight:900 }}>{t.name}</div>
+                                            <div style={{ color:'#475569', fontSize:9, marginTop:1 }}>PIN: {t.pin}</div>
+                                        </div>
+                                        {selectedTeam?.id === t.id && <span style={{ color:'#3b82f6', fontSize:18, fontWeight:900 }}>✓</span>}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Kalender-Typ */}
+                        <div>
+                            <div style={{ color:'#60a5fa', fontSize:9, fontWeight:900, textTransform:'uppercase', letterSpacing:1, marginBottom:10 }}>2. Kalender-Typ</div>
+                            <div style={{ display:'flex', gap:8 }}>
+                                {calTypeOptions.map(opt => (
+                                    <button key={opt.key} onClick={() => setCalType(opt.key)}
+                                        style={{ flex:1, padding:'10px 6px', borderRadius:12, border:`2px solid ${calType===opt.key?opt.color:'rgba(255,255,255,0.1)'}`, background:calType===opt.key?opt.bg:'rgba(255,255,255,0.04)', color:calType===opt.key?opt.color:'#64748b', fontWeight:900, fontSize:10, cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', gap:4, transition:'all 0.15s' }}>
+                                        <span style={{ fontSize:16 }}>{opt.label.split(' ')[0]}</span>
+                                        <span style={{ fontSize:9, textTransform:'uppercase', letterSpacing:1 }}>{opt.label.split(' ').slice(1).join(' ')}</span>
+                                        {calType === opt.key && <span style={{ fontSize:7, background:opt.color, color:'#fff', borderRadius:3, padding:'1px 5px' }}>✓ GEWÄHLT</span>}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Datum */}
+                        <div>
+                            <div style={{ color:'#60a5fa', fontSize:9, fontWeight:900, textTransform:'uppercase', letterSpacing:1, marginBottom:10 }}>3. Datum im Ziel-Kalender</div>
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                                <div>
+                                    <div style={{ color:'#94a3b8', fontSize:8, fontWeight:900, textTransform:'uppercase', marginBottom:5 }}>Start-Datum</div>
+                                    <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); if(endDate && endDate < e.target.value) setEndDate(''); }}
+                                        style={{ width:'100%', background:'#1e293b', border:'2px solid #3b82f6', borderRadius:10, padding:'10px 12px', color:'#fff', fontSize:12, boxSizing:'border-box' }}/>
+                                </div>
+                                <div>
+                                    <div style={{ color:'#94a3b8', fontSize:8, fontWeight:900, textTransform:'uppercase', marginBottom:5 }}>End-Datum (optional)</div>
+                                    <input type="date" value={endDate} min={startDate} onChange={e => setEndDate(e.target.value)}
+                                        style={{ width:'100%', background:'#1e293b', border:'1px solid rgba(255,255,255,0.1)', borderRadius:10, padding:'10px 12px', color:'#fff', fontSize:12, boxSizing:'border-box' }}/>
+                                </div>
+                            </div>
+                            {endDate && endDate > startDate && (
+                                <div style={{ marginTop:8, background:'rgba(37,99,235,0.1)', border:'1px solid rgba(37,99,235,0.2)', borderRadius:8, padding:'6px 12px', fontSize:9, color:'#60a5fa', fontWeight:700 }}>
+                                    📅 Mehrtägig
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Vorschau */}
+                        {selectedTeam && (
+                            <div style={{ background:'rgba(37,99,235,0.07)', border:'1px solid rgba(37,99,235,0.2)', borderRadius:12, padding:'12px 16px' }}>
+                                <div style={{ color:'#60a5fa', fontSize:8, fontWeight:900, textTransform:'uppercase', marginBottom:8 }}>Zusammenfassung</div>
+                                <div style={{ color:'#fff', fontSize:12, fontWeight:900, textTransform:'uppercase', marginBottom:4 }}>{entry.customer}</div>
+                                <div style={{ color:'#94a3b8', fontSize:10, marginBottom:4 }}>{entry.address}</div>
+                                {entry.memo && <div style={{ color:'#fde68a', fontSize:10, fontWeight:700, marginBottom:4 }}>📝 {entry.memo}</div>}
+                                <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:6 }}>
+                                    <span style={{ background:'rgba(37,99,235,0.2)', border:'1px solid rgba(37,99,235,0.4)', borderRadius:6, padding:'2px 8px', color:'#60a5fa', fontSize:9, fontWeight:900 }}>→ {selectedTeam.name}</span>
+                                    <span style={{ background:'rgba(37,99,235,0.1)', border:'1px solid rgba(37,99,235,0.2)', borderRadius:6, padding:'2px 8px', color:'#93c5fd', fontSize:9, fontWeight:900 }}>{calTypeOptions.find(o=>o.key===calType)?.label}</span>
+                                    <span style={{ background:keepOriginal?'rgba(16,185,129,0.15)':'rgba(239,68,68,0.12)', border:`1px solid ${keepOriginal?'rgba(16,185,129,0.3)':'rgba(239,68,68,0.3)'}`, borderRadius:6, padding:'2px 8px', color:keepOriginal?'#10b981':'#f87171', fontSize:9, fontWeight:900 }}>{keepOriginal ? '🔗 Kopie' : '✂️ Verschoben'}</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Footer */}
+                    <div style={{ padding:'12px 20px', borderTop:'1px solid rgba(37,99,235,0.2)', background:'#0f172a', flexShrink:0, display:'flex', gap:10 }}>
+                        <button onClick={onClose} style={{ flex:1, padding:'14px', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:14, color:'#64748b', fontWeight:900, fontSize:11, textTransform:'uppercase', cursor:'pointer' }}>Abbrechen</button>
+                        <button onClick={doSend} disabled={!selectedTeam || saving || !window.PeKalenderReady}
+                            style={{ flex:2, padding:'14px', background:selectedTeam&&!saving&&window.PeKalenderReady?'#3b82f6':'#1e293b', border:'none', borderRadius:14, color:selectedTeam&&!saving&&window.PeKalenderReady?'#fff':'#475569', fontWeight:900, fontSize:11, textTransform:'uppercase', cursor:selectedTeam&&!saving&&window.PeKalenderReady?'pointer':'not-allowed', boxShadow:selectedTeam&&window.PeKalenderReady?'0 4px 14px rgba(37,99,235,0.4)':'none' }}>
+                            {saving ? '⏳ Sende...' : keepOriginal ? `⧉ Kopieren → ${selectedTeam?.name||'Gruppe wählen'}` : `✂️ Verschieben → ${selectedTeam?.name||'Gruppe wählen'}`}
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
         function CalendarView({ onBack, calEntries, setCalEntries, appId, finishedObjects, objects }) {
             const [calWeek, setCalWeek] = useState(new Date());
             const [editCalEntry, setEditCalEntry] = useState(null);
@@ -1398,6 +1628,7 @@
             const [erledigtConfirmEntry, setErledigtConfirmEntry] = useState(null);
             const [showOffeneListePanel, setShowOffeneListePanel] = useState(false);
             const [offenePdfLoading, setOffenePdfLoading] = useState(false);
+            const [sendToKalenderEntry, setSendToKalenderEntry] = useState(null);
             const [multiSelectMode, setMultiSelectMode] = useState(false);
             const [multiSelected, setMultiSelected] = useState(new Set());
             const [multiErledigtLoading, setMultiErledigtLoading] = useState(false);
@@ -1929,6 +2160,9 @@
                         {!deleteMode && !copyEntry && !multiSelectMode && calAdminUnlocked && (
                             <div className="cal-card-actions">
                                 <button className="cal-card-btn-verschieben" onClick={(ev) => { ev.stopPropagation(); setVerschiebenEntry(e); }}>📅 Verschieben</button>
+                                <button onClick={(ev) => { ev.stopPropagation(); setSendToKalenderEntry(e); }}
+                                    style={{ fontSize:'7.5px', fontWeight:900, padding:'2px 7px', borderRadius:4, border:'1px solid rgba(99,102,241,0.5)', cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.4px', background:'rgba(99,102,241,0.15)', color:'#818cf8', transition:'all 0.12s' }}
+                                    title="An PE-KALENDER senden">⧉→ PE-Kalender</button>
                                 {!e.doneAt && (
                                     <button
                                         onClick={(ev) => { ev.stopPropagation(); setErledigtConfirmEntry(e); }}
@@ -2190,6 +2424,18 @@
                                 </div>
                             </div>
                         </div>
+                    )}
+                    {sendToKalenderEntry && (
+                        <SendToKalenderModal
+                            entry={sendToKalenderEntry}
+                            appId={appId}
+                            objects={objects}
+                            onClose={() => setSendToKalenderEntry(null)}
+                            onSent={(teamName, kept) => {
+                                setSendToKalenderEntry(null);
+                                alert(`✓ ${kept ? 'Kopiert' : 'Verschoben'} nach PE-KALENDER → ${teamName}`);
+                            }}
+                        />
                     )}
                     {erledigtConfirmEntry && (
                         <div style={{ position:'fixed', inset:0, zIndex:200, background:'rgba(10,15,28,0.88)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
