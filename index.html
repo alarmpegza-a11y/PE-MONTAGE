@@ -712,72 +712,154 @@
         };
 
         const generateBillingExcel = (entriesRaw, firma, billedIds) => {
-            const entries = [...entriesRaw].sort((a,b) => { const da=new Date(a.deliveryDate||a.finishedAt||0); const db2=new Date(b.deliveryDate||b.finishedAt||0); return da-db2; });
             if (!window.XLSX) { alert('Excel-Bibliothek nicht geladen.'); return; }
             const XLSX = window.XLSX;
             const firmaLabel = firma === 'PE' ? 'PE-Fabrikation' : 'FA-Bauservice';
             const today = new Date().toLocaleDateString('de-DE');
+            const sortFn = (a,b) => { const da=new Date(a.deliveryDate||a.finishedAt||0); const db2=new Date(b.deliveryDate||b.finishedAt||0); return da-db2; };
+
+            // ── In zwei klar getrennte Gruppen aufteilen: OFFEN oben, ABGERECHNET unten ──
+            const offeneEntries = entriesRaw.filter(e => !billedIds.has(e.id)).sort(sortFn);
+            const abgerechneteEntries = entriesRaw.filter(e => billedIds.has(e.id)).sort(sortFn);
+
+            const headerCols = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+            const colWidths = [4, 12, 30, 20, 36, 30, 16, 18];
 
             // ── Worksheet data ──────────────────────────────────────────
             const wsData = [];
+            // Zeilen-Styling wird parallel in einem Array gesammelt: { ref, style } pro Zelle
+            const cellStyles = [];
 
-            // Title rows
-            wsData.push(['FERTIGMONTAGE ABRECHNUNG — ' + firmaLabel.toUpperCase()]);
-            wsData.push(['Erstellt: ' + today + '    |    Aufträge: ' + entries.length]);
-            wsData.push([]); // blank row
+            const pushRow = (rowArr) => { wsData.push(rowArr); return wsData.length - 1; }; // gibt 0-basierten Row-Index zurück
 
-            // Header row — 8 Spalten inkl. MEMO
-            wsData.push(['#', 'DATUM', 'KUNDE', 'AUFTRAGSNR.', 'ADRESSE', 'MEMO', 'STATUS', 'ABGERECHNET AM']);
+            const styleRow = (rowIdx, style) => {
+                headerCols.forEach(col => cellStyles.push({ ref: col + (rowIdx + 1), style }));
+            };
 
-            // Data rows
-            entries.forEach((entry, i) => {
-                const isAbgerechnet = billedIds.has(entry.id);
-                const billedDate = isAbgerechnet
-                    ? (entry[`${firma}date`] ? new Date(entry[`${firma}date`]).toLocaleDateString('de-DE') : today)
-                    : '';
-                const datum = entry.deliveryDate ? new Date(entry.deliveryDate).toLocaleDateString('de-DE') : (entry.finishedAt ? new Date(entry.finishedAt).toLocaleDateString('de-DE') : '');
-                wsData.push([
-                    i + 1,
-                    datum,
-                    entry.customer || '',
-                    cleanAuftragsNr(entry.auftragsNr || ''),
-                    entry.address || '',
-                    entry.memo || '',
-                    isAbgerechnet ? '✓ ABGERECHNET' : '✓ FERTIG',
-                    billedDate,
-                ]);
+            // Titel
+            const titleRowIdx = pushRow(['FERTIGMONTAGE ABRECHNUNG — ' + firmaLabel.toUpperCase()]);
+            const subTitleRowIdx = pushRow(['Erstellt: ' + today + '    |    Gesamt: ' + entriesRaw.length + '    |    Offen: ' + offeneEntries.length + '    |    Abgerechnet: ' + abgerechneteEntries.length]);
+            pushRow([]);
+
+            const merges = [
+                { s: { r: titleRowIdx, c: 0 }, e: { r: titleRowIdx, c: 7 } },
+                { s: { r: subTitleRowIdx, c: 0 }, e: { r: subTitleRowIdx, c: 7 } },
+            ];
+
+            const addSectionHeader = (label, colorRgb, fillRgb) => {
+                const rowIdx = pushRow([label]);
+                merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: 7 } });
+                styleRow(rowIdx, {
+                    font: { bold: true, sz: 12, color: { rgb: colorRgb } },
+                    fill: { fgColor: { rgb: fillRgb } },
+                    alignment: { horizontal: 'left', vertical: 'center' },
+                    border: { top: { style: 'medium', color: { rgb: colorRgb } }, bottom: { style: 'medium', color: { rgb: colorRgb } } },
+                });
+                return rowIdx;
+            };
+
+            const addColumnHeaderRow = (accentRgb) => {
+                const rowIdx = pushRow(['#', 'DATUM', 'KUNDE', 'AUFTRAGSNR.', 'ADRESSE', 'MEMO', 'STATUS', 'ABGERECHNET AM']);
+                styleRow(rowIdx, {
+                    font: { bold: true, sz: 10, color: { rgb: 'FFFFFF' } },
+                    fill: { fgColor: { rgb: accentRgb } },
+                    alignment: { horizontal: 'center', vertical: 'center' },
+                    border: { bottom: { style: 'thin', color: { rgb: 'CCCCCC' } } },
+                });
+                return rowIdx;
+            };
+
+            const addEntryRows = (list, isAbgerechnetGroup) => {
+                list.forEach((entry, i) => {
+                    const isAbgerechnet = isAbgerechnetGroup; // Gruppenzugehörigkeit ist hier eindeutig
+                    const billedDate = isAbgerechnet
+                        ? (entry[`${firma}date`] ? new Date(entry[`${firma}date`]).toLocaleDateString('de-DE') : today)
+                        : '';
+                    const datum = entry.deliveryDate ? new Date(entry.deliveryDate).toLocaleDateString('de-DE') : (entry.finishedAt ? new Date(entry.finishedAt).toLocaleDateString('de-DE') : '');
+                    const rowIdx = pushRow([
+                        i + 1,
+                        datum,
+                        entry.customer || '',
+                        cleanAuftragsNr(entry.auftragsNr || ''),
+                        entry.address || '',
+                        entry.memo || '',
+                        isAbgerechnet ? '✓ ABGERECHNET' : '⬜ OFFEN',
+                        billedDate,
+                    ]);
+                    const isEven = i % 2 === 0;
+                    const rowFill = isAbgerechnet ? (isEven ? 'E7F4EC' : 'F2FAF5') : (isEven ? 'F8FAFC' : 'FFFFFF');
+                    const textColor = '1E293B';
+                    headerCols.forEach(col => {
+                        const isMemoCol = col === 'F';
+                        const hasMemo = !!(entry.memo);
+                        const memoFill = !isAbgerechnet && isMemoCol && hasMemo ? 'FFFBEB' : rowFill;
+                        const memoTextColor = !isAbgerechnet && isMemoCol && hasMemo ? '92400E' : textColor;
+                        cellStyles.push({
+                            ref: col + (rowIdx + 1),
+                            style: {
+                                font: { sz: 10, color: { rgb: memoTextColor }, bold: col === 'C' || col === 'D', italic: isMemoCol && hasMemo },
+                                fill: { fgColor: { rgb: memoFill } },
+                                alignment: { vertical: 'center', wrapText: isMemoCol },
+                                border: { bottom: { style: 'hair', color: { rgb: isAbgerechnet ? 'BBE5CC' : 'E2E8F0' } } },
+                            },
+                        });
+                    });
+                });
+            };
+
+            const accentMain = firma === 'PE' ? '2563EB' : 'D97706';
+            const accentBilled = '15803D';
+
+            // ── BLOCK 1: OFFENE AUFTRÄGE ───────────────────────────────
+            addSectionHeader('🔓  NOCH OFFEN  (' + offeneEntries.length + ' Aufträge)', accentMain, 'EFF6FF');
+            addColumnHeaderRow(accentMain);
+            if (offeneEntries.length === 0) {
+                const rowIdx = pushRow(['', '', 'Keine offenen Aufträge', '', '', '', '', '']);
+                styleRow(rowIdx, { font: { italic: true, sz: 10, color: { rgb: '94A3B8' } }, alignment: { vertical: 'center' } });
+            } else {
+                addEntryRows(offeneEntries, false);
+            }
+
+            // ── Deutliche Trennung: Leerzeilen + dicker Trennbalken ──
+            pushRow([]);
+            const dividerRowIdx = pushRow(['────────────  ABGERECHNETE AUFTRÄGE BEGINNEN UNTERHALB DIESER LINIE  ────────────']);
+            merges.push({ s: { r: dividerRowIdx, c: 0 }, e: { r: dividerRowIdx, c: 7 } });
+            styleRow(dividerRowIdx, {
+                font: { bold: true, sz: 9, color: { rgb: '94A3B8' } },
+                alignment: { horizontal: 'center', vertical: 'center' },
+                border: { top: { style: 'thick', color: { rgb: '94A3B8' } }, bottom: { style: 'thick', color: { rgb: '94A3B8' } } },
             });
+            pushRow([]);
 
-            // Summary rows
-            wsData.push([]);
-            wsData.push(['ZUSAMMENFASSUNG']);
-            wsData.push(['Gesamt Aufträge', entries.length]);
-            wsData.push(['Abgerechnet', entries.filter(e => billedIds.has(e.id)).length]);
-            wsData.push(['Offen', entries.filter(e => !billedIds.has(e.id)).length]);
+            // ── BLOCK 2: ABGERECHNETE AUFTRÄGE ─────────────────────────
+            addSectionHeader('✅  BEREITS ABGERECHNET  (' + abgerechneteEntries.length + ' Aufträge)', accentBilled, 'F0FDF4');
+            addColumnHeaderRow(accentBilled);
+            if (abgerechneteEntries.length === 0) {
+                const rowIdx = pushRow(['', '', 'Keine abgerechneten Aufträge', '', '', '', '', '']);
+                styleRow(rowIdx, { font: { italic: true, sz: 10, color: { rgb: '94A3B8' } }, alignment: { vertical: 'center' } });
+            } else {
+                addEntryRows(abgerechneteEntries, true);
+            }
+
+            // Zusammenfassung am Ende
+            pushRow([]);
+            const summaryHeaderIdx = pushRow(['ZUSAMMENFASSUNG']);
+            styleRow(summaryHeaderIdx, { font: { bold: true, sz: 10, color: { rgb: '1E293B' } } });
+            pushRow(['Gesamt Aufträge', entriesRaw.length]);
+            pushRow(['Noch offen', offeneEntries.length]);
+            pushRow(['Abgerechnet', abgerechneteEntries.length]);
 
             // ── Create worksheet ────────────────────────────────────────
             const ws = XLSX.utils.aoa_to_sheet(wsData);
 
             // Column widths — 8 Spalten
-            ws['!cols'] = [
-                { wch: 4 },   // #
-                { wch: 12 },  // Datum
-                { wch: 30 },  // Kunde
-                { wch: 20 },  // AuftragsNr
-                { wch: 36 },  // Adresse
-                { wch: 30 },  // Memo
-                { wch: 16 },  // Status
-                { wch: 18 },  // Abgerechnet am
-            ];
+            ws['!cols'] = colWidths.map(wch => ({ wch }));
 
-            // Merge title row across all 8 cols
-            ws['!merges'] = [
-                { s: { r: 0, c: 0 }, e: { r: 0, c: 7 } },
-                { s: { r: 1, c: 0 }, e: { r: 1, c: 7 } },
-            ];
+            // Merges
+            ws['!merges'] = merges;
 
-            // ── Styling via cell objects ────────────────────────────────
-            const titleCell = ws['A1'];
+            // Titel-Zelle
+            const titleCell = ws['A' + (titleRowIdx + 1)];
             if (titleCell) {
                 titleCell.s = {
                     font: { bold: true, sz: 14, color: { rgb: firma === 'PE' ? '2563EB' : 'D97706' } },
@@ -786,50 +868,9 @@
                 };
             }
 
-            // Header row is row index 3 (0-based) — jetzt 8 Spalten A–H
-            const headerCols = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-            headerCols.forEach(col => {
-                const cellRef = col + '4';
-                if (ws[cellRef]) {
-                    ws[cellRef].s = {
-                        font: { bold: true, sz: 10, color: { rgb: 'FFFFFF' } },
-                        fill: { fgColor: { rgb: firma === 'PE' ? '2563EB' : 'D97706' } },
-                        alignment: { horizontal: 'center', vertical: 'center' },
-                        border: {
-                            bottom: { style: 'thin', color: { rgb: 'CCCCCC' } },
-                        },
-                    };
-                }
-            });
-
-            // Data rows styling (start at row index 4)
-            entries.forEach((entry, i) => {
-                const rowIdx = 4 + i; // 0-based
-                const isAbgerechnet = billedIds.has(entry.id);
-                const isEven = i % 2 === 0;
-                const rowFill = isAbgerechnet
-                    ? '0F5132'
-                    : isEven ? 'F8FAFC' : 'FFFFFF';
-                const textColor = isAbgerechnet ? 'FFFFFF' : '1E293B';
-
-                headerCols.forEach(col => {
-                    const cellRef = col + (rowIdx + 1);
-                    if (ws[cellRef]) {
-                        // Memo-Spalte (F) bekommt gelb-orangenen Ton wenn Inhalt vorhanden
-                        const isMemoCol = col === 'F';
-                        const hasMemo = !!(entry.memo);
-                        const memoFill = !isAbgerechnet && isMemoCol && hasMemo ? 'FFFBEB' : rowFill;
-                        const memoTextColor = !isAbgerechnet && isMemoCol && hasMemo ? '92400E' : textColor;
-                        ws[cellRef].s = {
-                            font: { sz: 10, color: { rgb: memoTextColor }, bold: col === 'C' || col === 'D', italic: isMemoCol && hasMemo },
-                            fill: { fgColor: { rgb: memoFill } },
-                            alignment: { vertical: 'center', wrapText: isMemoCol },
-                            border: {
-                                bottom: { style: 'hair', color: { rgb: 'E2E8F0' } },
-                            },
-                        };
-                    }
-                });
+            // Alle gesammelten Zell-Styles anwenden
+            cellStyles.forEach(({ ref, style }) => {
+                if (ws[ref]) ws[ref].s = style;
             });
 
             // ── Create workbook and save ────────────────────────────────
