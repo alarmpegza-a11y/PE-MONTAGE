@@ -1970,6 +1970,41 @@
                 setErledigtConfirmEntry(null);
             };
 
+            // Umkehrung von markCalEntryDone: macht "Erledigt" vollständig rückgängig
+            const unmarkCalEntryDone = async (entry) => {
+                const { db, doc, setDoc, updateDoc, deleteDoc } = window.FirebaseSDK;
+                // 1. doneAt am Calentry entfernen
+                await updateDoc(doc(db,'artifacts',appId,'public','data','calentries',entry.id), { doneAt: null });
+                // 2. finishedjobs-Eintrag löschen (raus aus der Abrechnung)
+                try { await deleteDoc(doc(db,'artifacts',appId,'public','data','finishedjobs',`fin-cal-${entry.id}`)); } catch (e) {}
+                // 3. Auftrag im Admin-Dashboard wiederherstellen (nur falls nicht mehr vorhanden -> keine Duplikate)
+                const entryAufnr = cleanAuftragsNr(entry.auftragsNr || '');
+                const entryAddr = (entry.address || '').trim().toLowerCase();
+                const stillExists = (objects || []).some(obj => {
+                    const objAufnr = cleanAuftragsNr(obj.auftragsNr || '');
+                    const objAddr = (obj.address || '').trim().toLowerCase();
+                    return (entryAufnr && objAufnr && entryAufnr === objAufnr) || (entryAddr && objAddr && entryAddr === objAddr);
+                });
+                if (!stillExists) {
+                    const objId = `obj-${entry.id}`;
+                    const eleMatch = (entry.memo || '').match(/(\d+)\s*ELE/i);
+                    const target = eleMatch ? parseInt(eleMatch[1]) : (parseInt(entry.target) || 1);
+                    await setDoc(doc(db,'artifacts',appId,'public','data','objects',objId), {
+                        id: objId, calEntryId: entry.id,
+                        name: entry.address || entry.customer,
+                        customer: entry.customer || '',
+                        address: entry.address || '',
+                        houseInfo: entry.memo || 'Gesamtmontage',
+                        memo: entry.memo || '',
+                        auftragsNr: entry.auftragsNr || '',
+                        target, current: 0,
+                        lastRemaining: null, blockReason: null,
+                        deliveryDate: entry.deliveryDate || new Date().toISOString(),
+                        status: 'active', history: [],
+                    });
+                }
+            };
+
             const processCalImport = async () => {
                 if (!calImportText.trim()) return;
                 const lines = calImportText.split(/\r?\n/);
@@ -2286,7 +2321,7 @@
                                 )}
                                 {e.doneAt && (
                                     <button
-                                        onClick={(ev) => { ev.stopPropagation(); if(window.confirm('Erledigt-Markierung rückgängig machen?')) { const {db,doc,updateDoc}=window.FirebaseSDK; updateDoc(doc(db,'artifacts',appId,'public','data','calentries',e.id),{doneAt:null}); } }}
+                                        onClick={(ev) => { ev.stopPropagation(); if(window.confirm('Erledigt-Markierung rückgängig machen?')) { unmarkCalEntryDone(e); } }}
                                         style={{ fontSize:'7px', fontWeight:900, padding:'2px 7px', borderRadius:4, border:'1px solid rgba(239,68,68,0.4)', cursor:'pointer', textTransform:'uppercase', letterSpacing:'0.4px', background:'rgba(239,68,68,0.08)', color:'#dc2626', transition:'all 0.12s' }}
                                     >↩ Rückgängig</button>
                                 )}
@@ -2817,7 +2852,7 @@
                                                             <button className="mob-btn" onClick={() => setErledigtConfirmEntry(e)} style={{ background:'rgba(16,185,129,0.15)', color:'#15803d', border:'1px solid rgba(16,185,129,0.4)', fontWeight:900 }}>✓ Erledigt</button>
                                                         )}
                                                         {calAdminUnlocked && e.doneAt && (
-                                                            <button className="mob-btn" onClick={() => { if(confirm('Erledigt-Markierung rückgängig?')) { const{db,doc,updateDoc}=window.FirebaseSDK; updateDoc(doc(db,'artifacts',appId,'public','data','calentries',e.id),{doneAt:null}); }}} style={{ background:'rgba(239,68,68,0.1)', color:'#dc2626', border:'1px solid rgba(239,68,68,0.3)', fontSize:10 }}>↩ Rückgängig</button>
+                                                            <button className="mob-btn" onClick={() => { if(confirm('Erledigt-Markierung rückgängig?')) { unmarkCalEntryDone(e); }}} style={{ background:'rgba(239,68,68,0.1)', color:'#dc2626', border:'1px solid rgba(239,68,68,0.3)', fontSize:10 }}>↩ Rückgängig</button>
                                                         )}
                                                         {calAdminUnlocked && (
                                                             <button className="mob-btn" onClick={() => setVerschiebenEntry(e)} style={{ background:'rgba(245,158,11,0.15)', color:'#92400e', border:'1px solid rgba(245,158,11,0.4)' }}>📅 Verschieben</button>
