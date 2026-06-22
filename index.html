@@ -2376,92 +2376,95 @@
                                 </div>
                                 <p style={{ margin:0, fontSize:'7pt', color:'#666' }}>{formatDate(toLocalDateStr(days[0]))} – {formatDate(toLocalDateStr(days[5]))}</p>
                             </div>
-                            <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:'1.5mm' }}>
+                            <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:'1.5mm', alignItems:'start' }}>
+                                {/* Tag-Header-Zeile */}
                                 {days.map((day,di) => {
                                     const dayStr = toLocalDateStr(day);
-                                    // Nur Aufträge die an diesem Tag STARTEN anzeigen
-                                    // Mehrtägige Aufträge erscheinen so nur einmal, am Starttag
-                                    const dayEnt = filteredEntries.filter(e =>
-                                        (e.deliveryDate||'').substring(0,10) === dayStr
-                                    );
+                                    const cnt = laneVisibleEntries.filter(e => {
+                                        const s=(e.deliveryDate||'').substring(0,10);
+                                        const en=(e.endDate||e.deliveryDate||'').substring(0,10);
+                                        return dayStr>=s && dayStr<=en;
+                                    }).length;
                                     return (
-                                        <div key={di}>
-                                            {/* Tag-Header – dunkel & kompakt */}
-                                            <div style={{ background:'#1e293b', borderRadius:'2pt', padding:'1.5mm 2mm', marginBottom:'1mm', textAlign:'center' }}>
-                                                <div style={{ fontSize:'7pt', fontWeight:900, textTransform:'uppercase', color:'#fff', letterSpacing:'0.2pt' }}>{DAY_NAMES[di]}</div>
-                                                <div style={{ fontSize:'5.5pt', color:'#94a3b8', marginTop:'0.2mm' }}>{formatDate(dayStr)}</div>
-                                                {dayEnt.length>0 && <div style={{ fontSize:'4.5pt', color:'#60a5fa', fontWeight:900, marginTop:'0.2mm' }}>{dayEnt.length} Auftrag{dayEnt.length>1?'e':''}</div>}
-                                            </div>
-                                            {/* Auftrags-Karten – ultra-kompakt */}
-                                            {dayEnt.map((e,ei) => {
-                                                const ci = colorIndex[e.id]!==undefined?colorIndex[e.id]:0;
-                                                const aufnr = cleanAuftragsNr(e.auftragsNr||'');
-                                                const startPdf = (e.deliveryDate||'').substring(0,10);
-                                                const endPdf   = (e.endDate||e.deliveryDate||'').substring(0,10);
-                                                const totalDaysPdf = daysBetween(startPdf, endPdf);
-                                                const entryType = e.entryType || 'LIEFERUNG';
-                                                return (
-                                                    <div key={ei} style={{
-                                                        background: CARD_COLORS[ci],
-                                                        borderLeft: `2.5pt solid ${CARD_BORDER[ci]}`,
-                                                        borderTop:  `0.5pt solid ${CARD_BORDER[ci]}44`,
-                                                        borderRight:`0.5pt solid ${CARD_BORDER[ci]}22`,
-                                                        borderBottom:`0.5pt solid ${CARD_BORDER[ci]}22`,
-                                                        borderRadius:'2pt',
-                                                        padding:'1.5mm 2mm',
-                                                        marginBottom:'1mm'
-                                                    }}>
-                                                        {/* Typ-Badge + Mehrtages-Info */}
-                                                        <div style={{ display:'flex', alignItems:'center', gap:'1mm', marginBottom:'0.8mm', flexWrap:'wrap' }}>
-                                                            <div style={{
-                                                                background: CARD_BORDER[ci],
-                                                                color:'#fff',
-                                                                fontSize:'4.5pt',
-                                                                fontWeight:900,
-                                                                padding:'0.3mm 2mm',
-                                                                borderRadius:'1.5pt',
-                                                                textTransform:'uppercase',
-                                                                whiteSpace:'nowrap'
-                                                            }}>{entryType}</div>
-                                                            {totalDaysPdf > 1 && (
-                                                                <div style={{
-                                                                    background:`${CARD_BORDER[ci]}25`,
-                                                                    color: CARD_BORDER[ci],
-                                                                    fontSize:'4pt',
-                                                                    fontWeight:900,
-                                                                    padding:'0.3mm 1.5mm',
-                                                                    borderRadius:'1.5pt',
-                                                                    border:`0.5pt solid ${CARD_BORDER[ci]}`,
-                                                                    whiteSpace:'nowrap'
-                                                                }}>{totalDaysPdf}T → {formatDate(endPdf)}</div>
-                                                            )}
-                                                        </div>
-                                                        {/* AuftragsNr */}
-                                                        {aufnr && (
-                                                            <div style={{ fontSize:'4.5pt', color:CARD_TEXT[ci], fontWeight:700, opacity:0.6, marginBottom:'0.4mm', textTransform:'uppercase', lineHeight:1.1 }}>{aufnr}</div>
-                                                        )}
-                                                        {/* Kunde */}
-                                                        <div style={{ fontSize:'6.5pt', fontWeight:900, color:CARD_TEXT[ci], lineHeight:1.15, marginBottom:'0.5mm', textTransform:'uppercase' }}>{e.customer}</div>
-                                                        {/* Adresse */}
-                                                        {e.address && (
-                                                            <div style={{ fontSize:'5.5pt', color:CARD_TEXT[ci], opacity:0.85, lineHeight:1.2 }}>{e.address}</div>
-                                                        )}
-                                                        {/* Memo – kompakt ohne Label */}
-                                                        {e.memo && (
-                                                            <div style={{ marginTop:'0.8mm', padding:'0.8mm 1.5mm', borderLeft:`1.5pt solid ${CARD_BORDER[ci]}`, background:`${CARD_BORDER[ci]}18`, borderRadius:'0 1.5pt 1.5pt 0' }}>
-                                                                <div style={{ fontSize:'4.5pt', fontWeight:900, color:CARD_TEXT[ci], lineHeight:1.25 }}>{e.memo}</div>
-                                                            </div>
-                                                        )}
-                                                        {/* ELE Badge */}
-                                                        {e.target>0 && (
-                                                            <div style={{ display:'inline-block', background:CARD_BORDER[ci], color:'#fff', fontSize:'4.5pt', fontWeight:900, padding:'0.3mm 1.5mm', borderRadius:'1.5pt', marginTop:'0.8mm' }}>{e.target} ELE</div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
+                                        <div key={'h'+di} style={{ background:'#1e293b', borderRadius:'2pt', padding:'1.5mm 2mm', textAlign:'center' }}>
+                                            <div style={{ fontSize:'7pt', fontWeight:900, textTransform:'uppercase', color:'#fff', letterSpacing:'0.2pt' }}>{DAY_NAMES[di]}</div>
+                                            <div style={{ fontSize:'5.5pt', color:'#94a3b8', marginTop:'0.2mm' }}>{formatDate(dayStr)}</div>
+                                            {cnt>0 && <div style={{ fontSize:'4.5pt', color:'#60a5fa', fontWeight:900, marginTop:'0.2mm' }}>{cnt} Auftrag{cnt>1?'e':''}</div>}
                                         </div>
                                     );
                                 })}
+                                {/* Lane-Zeilen: jeder Auftrag bleibt ueber alle seine Tage in derselben Zeile (wie im Bildschirm-Kalender) */}
+                                {Array.from({ length: numLanes }, (_, laneIdx) =>
+                                    days.map((day, di) => {
+                                        const dayStr = toLocalDateStr(day);
+                                        const e = laneVisibleEntries.find(entry => {
+                                            if (entryLanes.get(entry.id)!==laneIdx) return false;
+                                            const s=(entry.deliveryDate||'').substring(0,10);
+                                            const en=(entry.endDate||'').substring(0,10)||s;
+                                            return dayStr>=s && dayStr<=en;
+                                        })||null;
+                                        if (!e) return <div key={laneIdx+'-'+di}></div>;
+                                        const ci = colorIndex[e.id]!==undefined?colorIndex[e.id]:0;
+                                        const aufnr = cleanAuftragsNr(e.auftragsNr||'');
+                                        const startPdf = (e.deliveryDate||'').substring(0,10);
+                                        const endPdf   = (e.endDate||e.deliveryDate||'').substring(0,10);
+                                        const totalDaysPdf = daysBetween(startPdf, endPdf);
+                                        const entryType = e.entryType || 'LIEFERUNG';
+                                        const isStartPdf = dayStr === startPdf;
+                                        const dayNumberPdf = Math.round((new Date(dayStr)-new Date(startPdf))/86400000)+1;
+                                        return (
+                                            <div key={laneIdx+'-'+di} style={{
+                                                background: CARD_COLORS[ci],
+                                                borderLeft: `2.5pt solid ${CARD_BORDER[ci]}`,
+                                                borderTop:  `0.5pt solid ${CARD_BORDER[ci]}44`,
+                                                borderRight:`0.5pt solid ${CARD_BORDER[ci]}22`,
+                                                borderBottom:`0.5pt solid ${CARD_BORDER[ci]}22`,
+                                                borderRadius:'2pt',
+                                                padding:'1.5mm 2mm'
+                                            }}>
+                                                <div style={{ display:'flex', alignItems:'center', gap:'1mm', marginBottom:'0.8mm', flexWrap:'wrap' }}>
+                                                    <div style={{
+                                                        background: CARD_BORDER[ci],
+                                                        color:'#fff',
+                                                        fontSize:'4.5pt',
+                                                        fontWeight:900,
+                                                        padding:'0.3mm 2mm',
+                                                        borderRadius:'1.5pt',
+                                                        textTransform:'uppercase',
+                                                        whiteSpace:'nowrap'
+                                                    }}>{isStartPdf ? entryType : `TAG ${dayNumberPdf}`}</div>
+                                                    {totalDaysPdf > 1 && (
+                                                        <div style={{
+                                                            background:`${CARD_BORDER[ci]}25`,
+                                                            color: CARD_BORDER[ci],
+                                                            fontSize:'4pt',
+                                                            fontWeight:900,
+                                                            padding:'0.3mm 1.5mm',
+                                                            borderRadius:'1.5pt',
+                                                            border:`0.5pt solid ${CARD_BORDER[ci]}`,
+                                                            whiteSpace:'nowrap'
+                                                        }}>{totalDaysPdf}T → {formatDate(endPdf)}</div>
+                                                    )}
+                                                </div>
+                                                {aufnr && (
+                                                    <div style={{ fontSize:'4.5pt', color:CARD_TEXT[ci], fontWeight:700, opacity:0.6, marginBottom:'0.4mm', textTransform:'uppercase', lineHeight:1.1 }}>{aufnr}</div>
+                                                )}
+                                                <div style={{ fontSize:'6.5pt', fontWeight:900, color:CARD_TEXT[ci], lineHeight:1.15, marginBottom:'0.5mm', textTransform:'uppercase' }}>{e.customer}</div>
+                                                {e.address && (
+                                                    <div style={{ fontSize:'5.5pt', color:CARD_TEXT[ci], opacity:0.85, lineHeight:1.2 }}>{e.address}</div>
+                                                )}
+                                                {e.memo && (
+                                                    <div style={{ marginTop:'0.8mm', padding:'0.8mm 1.5mm', borderLeft:`1.5pt solid ${CARD_BORDER[ci]}`, background:`${CARD_BORDER[ci]}18`, borderRadius:'0 1.5pt 1.5pt 0' }}>
+                                                        <div style={{ fontSize:'4.5pt', fontWeight:900, color:CARD_TEXT[ci], lineHeight:1.25 }}>{e.memo}</div>
+                                                    </div>
+                                                )}
+                                                {e.target>0 && (
+                                                    <div style={{ display:'inline-block', background:CARD_BORDER[ci], color:'#fff', fontSize:'4.5pt', fontWeight:900, padding:'0.3mm 1.5mm', borderRadius:'1.5pt', marginTop:'0.8mm' }}>{e.target} ELE</div>
+                                                )}
+                                            </div>
+                                        );
+                                    })
+                                )}
                             </div>
                         </div>
                     </div>
