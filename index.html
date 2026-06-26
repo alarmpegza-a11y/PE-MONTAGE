@@ -3110,11 +3110,11 @@
                                     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
                                         <div>
                                             <div style={{ color:'#94a3b8', fontSize:8, fontWeight:700, textTransform:'uppercase', marginBottom:4 }}>Von (Start)</div>
-                                            <input type="date" style={{ width:'100%', padding:'9px 10px', borderRadius:8, background:'#1e293b', border:'2px solid #3b82f6', color:'#fff', fontSize:11, boxSizing:'border-box' }} value={editCalEntry.deliveryDate?.substring(0,10)||''} onChange={e=>setEditCalEntry({...editCalEntry,deliveryDate:e.target.value,endDate:editCalEntry.endDate&&editCalEntry.endDate>=e.target.value?editCalEntry.endDate:e.target.value})}/>
+                                            <input type="date" style={{ width:'100%', padding:'9px 10px', borderRadius:8, background:'#1e293b', border:'2px solid #3b82f6', color:'#fff', fontSize:11, boxSizing:'border-box' }} value={editCalEntry.deliveryDate?.substring(0,10)||''} onChange={e=>{ if(!e.target.value) return; setEditCalEntry({...editCalEntry,deliveryDate:e.target.value,endDate:editCalEntry.endDate&&editCalEntry.endDate>=e.target.value?editCalEntry.endDate:e.target.value}); }}/>
                                         </div>
                                         <div>
                                             <div style={{ color:'#94a3b8', fontSize:8, fontWeight:700, textTransform:'uppercase', marginBottom:4 }}>Bis (Ende)</div>
-                                            <input type="date" style={{ width:'100%', padding:'9px 10px', borderRadius:8, background:'#1e293b', border:'2px solid rgba(59,130,246,0.5)', color:'#fff', fontSize:11, boxSizing:'border-box' }} value={(editCalEntry.endDate||editCalEntry.deliveryDate)?.substring(0,10)||''} min={editCalEntry.deliveryDate?.substring(0,10)||''} onChange={e=>setEditCalEntry({...editCalEntry,endDate:e.target.value})}/>
+                                            <input type="date" style={{ width:'100%', padding:'9px 10px', borderRadius:8, background:'#1e293b', border:'2px solid rgba(59,130,246,0.5)', color:'#fff', fontSize:11, boxSizing:'border-box' }} value={editCalEntry.endDate?.substring(0,10)||''} min={editCalEntry.deliveryDate?.substring(0,10)||''} onChange={e=>{ if(!e.target.value) return; setEditCalEntry({...editCalEntry,endDate:e.target.value}); }}/>
                                         </div>
                                     </div>
                                     {editCalEntry.deliveryDate&&editCalEntry.endDate&&editCalEntry.endDate>editCalEntry.deliveryDate && (
