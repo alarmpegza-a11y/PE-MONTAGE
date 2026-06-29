@@ -722,8 +722,9 @@
             const offeneEntries = entriesRaw.filter(e => !billedIds.has(e.id)).sort(sortFn);
             const abgerechneteEntries = entriesRaw.filter(e => billedIds.has(e.id)).sort(sortFn);
 
-            const headerCols = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-            const colWidths = [4, 12, 30, 20, 36, 30, 16, 18];
+            const headerCols = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+            const colWidths = [4, 12, 30, 20, 36, 30, 16, 18, 22];
+            const billingLabel = (s) => s==='fehler_intern' ? 'Fehler intern' : (s==='weiter_verrechnen' ? 'Weiter verrechnen' : '');
 
             // ── Worksheet data ──────────────────────────────────────────
             const wsData = [];
@@ -742,13 +743,13 @@
             pushRow([]);
 
             const merges = [
-                { s: { r: titleRowIdx, c: 0 }, e: { r: titleRowIdx, c: 7 } },
-                { s: { r: subTitleRowIdx, c: 0 }, e: { r: subTitleRowIdx, c: 7 } },
+                { s: { r: titleRowIdx, c: 0 }, e: { r: titleRowIdx, c: 8 } },
+                { s: { r: subTitleRowIdx, c: 0 }, e: { r: subTitleRowIdx, c: 8 } },
             ];
 
             const addSectionHeader = (label, colorRgb, fillRgb) => {
                 const rowIdx = pushRow([label]);
-                merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: 7 } });
+                merges.push({ s: { r: rowIdx, c: 0 }, e: { r: rowIdx, c: 8 } });
                 styleRow(rowIdx, {
                     font: { bold: true, sz: 12, color: { rgb: colorRgb } },
                     fill: { fgColor: { rgb: fillRgb } },
@@ -759,7 +760,7 @@
             };
 
             const addColumnHeaderRow = (accentRgb) => {
-                const rowIdx = pushRow(['#', 'DATUM', 'KUNDE', 'AUFTRAGSNR.', 'ADRESSE', 'MEMO', 'STATUS', 'ABGERECHNET AM']);
+                const rowIdx = pushRow(['#', 'DATUM', 'KUNDE', 'AUFTRAGSNR.', 'ADRESSE', 'MEMO', 'STATUS', 'ABGERECHNET AM', 'ABRECHNEN:']);
                 styleRow(rowIdx, {
                     font: { bold: true, sz: 10, color: { rgb: 'FFFFFF' } },
                     fill: { fgColor: { rgb: accentRgb } },
@@ -785,20 +786,25 @@
                         entry.memo || '',
                         isAbgerechnet ? '✓ ABGERECHNET' : '⬜ OFFEN',
                         billedDate,
+                        billingLabel(entry.billingStatus),
                     ]);
                     const isEven = i % 2 === 0;
                     const rowFill = isAbgerechnet ? (isEven ? 'E7F4EC' : 'F2FAF5') : (isEven ? 'F8FAFC' : 'FFFFFF');
                     const textColor = '1E293B';
                     headerCols.forEach(col => {
                         const isMemoCol = col === 'F';
+                        const isBillingCol = col === 'I';
                         const hasMemo = !!(entry.memo);
+                        const hasBilling = !!(entry.billingStatus);
                         const memoFill = !isAbgerechnet && isMemoCol && hasMemo ? 'FFFBEB' : rowFill;
-                        const memoTextColor = !isAbgerechnet && isMemoCol && hasMemo ? '92400E' : textColor;
+                        let cellTextColor = !isAbgerechnet && isMemoCol && hasMemo ? '92400E' : textColor;
+                        let cellFill = memoFill;
+                        if (isBillingCol && hasBilling) { cellTextColor = 'DC2626'; cellFill = 'FEE2E2'; }
                         cellStyles.push({
                             ref: col + (rowIdx + 1),
                             style: {
-                                font: { sz: 10, color: { rgb: memoTextColor }, bold: col === 'C' || col === 'D', italic: isMemoCol && hasMemo },
-                                fill: { fgColor: { rgb: memoFill } },
+                                font: { sz: 10, color: { rgb: cellTextColor }, bold: col === 'C' || col === 'D' || (isBillingCol && hasBilling), italic: isMemoCol && hasMemo },
+                                fill: { fgColor: { rgb: cellFill } },
                                 alignment: { vertical: 'center', wrapText: isMemoCol },
                                 border: { bottom: { style: 'hair', color: { rgb: isAbgerechnet ? 'BBE5CC' : 'E2E8F0' } } },
                             },
@@ -823,7 +829,7 @@
             // ── Deutliche Trennung: Leerzeilen + dicker Trennbalken ──
             pushRow([]);
             const dividerRowIdx = pushRow(['────────────  ABGERECHNETE AUFTRÄGE BEGINNEN UNTERHALB DIESER LINIE  ────────────']);
-            merges.push({ s: { r: dividerRowIdx, c: 0 }, e: { r: dividerRowIdx, c: 7 } });
+            merges.push({ s: { r: dividerRowIdx, c: 0 }, e: { r: dividerRowIdx, c: 8 } });
             styleRow(dividerRowIdx, {
                 font: { bold: true, sz: 9, color: { rgb: '94A3B8' } },
                 alignment: { horizontal: 'center', vertical: 'center' },
@@ -886,6 +892,7 @@
             const [pdfLoading, setPdfLoading] = useState(false);
             const [billingData, setBillingData] = useState({});
             const [searchBilling, setSearchBilling] = useState('');
+            const [billingView, setBillingView] = useState('offen'); // 'offen' | 'archiv'
 
             useEffect(() => {
                 if (!window.FirebaseSDK) return;
@@ -945,9 +952,8 @@
 
             const exportExcel = () => {
                 try {
-                    // Memo aus calEntries nachladen fuer Eintraege ohne Memo
+                    // Memo + Abrechnen-Status aus calEntries nachladen
                     const enriched = finishedEntries.map(entry => {
-                        if (entry.memo) return entry;
                         const calList = calEntries || [];
                         const entryAufnr = cleanAuftragsNr(entry.auftragsNr || '');
                         const entryAddr = (entry.address || '').trim().toLowerCase();
@@ -956,7 +962,9 @@
                             const cAddr = (c.address || '').trim().toLowerCase();
                             return (entryAufnr && cAufnr && entryAufnr === cAufnr) || (entryAddr && cAddr && entryAddr === cAddr);
                         });
-                        return match ? {...entry, memo: match.memo || ''} : entry;
+                        const billingStatus = (match && match.billingStatus) ? match.billingStatus : (entry.billingStatus || null);
+                        const memo = entry.memo || (match ? (match.memo || '') : '');
+                        return {...entry, memo, billingStatus};
                     });
                     generateBillingExcel(enriched, activeTab, billedIds);
                 }
@@ -969,7 +977,10 @@
             const firmaBorder = activeTab==='PE'?'rgba(59,130,246,0.35)':'rgba(245,158,11,0.35)';
             const unbilledCount = finishedEntries.filter(e=>!billedIds.has(e.id)).length;
             const billedCount = finishedEntries.filter(e=>billedIds.has(e.id)).length;
-            const filteredFinished = searchBilling.trim().length < 1 ? finishedEntries : finishedEntries.filter(e => {
+            const baseList = billingView==='archiv'
+                ? finishedEntries.filter(e=>billedIds.has(e.id))
+                : finishedEntries.filter(e=>!billedIds.has(e.id));
+            const filteredFinished = searchBilling.trim().length < 1 ? baseList : baseList.filter(e => {
                 const q = searchBilling.toLowerCase();
                 return (e.customer||'').toLowerCase().includes(q) || (e.address||'').toLowerCase().includes(q) || (e.auftragsNr||'').toLowerCase().includes(q);
             });
@@ -999,11 +1010,17 @@
                                 <div style={{ color:'#94a3b8', fontSize:9, marginTop:1 }}>Unabhängige Abrechnung · {billedCount} abgerechnet</div>
                             </div>
                         </div>
+                        <div style={{ display:'flex', gap:8, padding:'12px 22px 0 22px' }}>
+                            <button onClick={()=>{setBillingView('offen');setSelected(new Set());}} style={{ flex:1, padding:'9px', borderRadius:10, border:`1px solid ${billingView==='offen'?firmaColor:'rgba(255,255,255,0.12)'}`, background:billingView==='offen'?firmaColorBg:'transparent', color:billingView==='offen'?firmaColor:'#94a3b8', fontSize:10, fontWeight:900, textTransform:'uppercase', cursor:'pointer' }}>📂 Offen ({unbilledCount})</button>
+                            <button onClick={()=>{setBillingView('archiv');setSelected(new Set());}} style={{ flex:1, padding:'9px', borderRadius:10, border:`1px solid ${billingView==='archiv'?'#10b981':'rgba(255,255,255,0.12)'}`, background:billingView==='archiv'?'rgba(16,185,129,0.12)':'transparent', color:billingView==='archiv'?'#10b981':'#94a3b8', fontSize:10, fontWeight:900, textTransform:'uppercase', cursor:'pointer' }}>🗄 Archiv ({billedCount})</button>
+                        </div>
                         <div style={{ display:'flex', gap:8, padding:'12px 22px', borderBottom:'1px solid rgba(255,255,255,0.06)', flexWrap:'wrap' }}>
+                            {billingView==='offen' && (<>
                             <button onClick={selectAll} style={{ padding:'7px 14px', background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:8, color:'#cbd5e1', fontSize:9, fontWeight:900, textTransform:'uppercase', cursor:'pointer' }}>Alle wählen ({unbilledCount})</button>
                             {selected.size>0 && (<>
                                 <button onClick={clearSelection} style={{ padding:'7px 14px', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:8, color:'#94a3b8', fontSize:9, fontWeight:900, textTransform:'uppercase', cursor:'pointer' }}>Aufheben</button>
                                 <button onClick={markAsAbgerechnet} style={{ padding:'7px 16px', background:'#10b981', border:'none', borderRadius:8, color:'#fff', fontSize:9, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}><Icon name="check-circle" size={13}/>{selected.size} ABGERECHNET</button>
+                            </>)}
                             </>)}
                             <button onClick={exportPDF} style={{ padding:'7px 14px', background:activeTab==='PE'?'rgba(59,130,246,0.2)':'rgba(245,158,11,0.2)', border:`1px solid ${firmaBorder}`, borderRadius:8, color:firmaColor, fontSize:9, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:6, marginLeft:'auto' }}><Icon name="download" size={13}/>PDF</button>
                             <button onClick={exportExcel} style={{ padding:'7px 14px', background:'rgba(16,185,129,0.18)', border:'1px solid rgba(16,185,129,0.45)', borderRadius:8, color:'#10b981', fontSize:9, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}><Icon name="table" size={13}/>EXCEL</button>
@@ -1024,7 +1041,7 @@
                             </div>
                             {searchBilling.trim() && (
                                 <div style={{ fontSize:9, color:'#64748b', marginTop:5, fontWeight:700 }}>
-                                    {filteredFinished.length} von {finishedEntries.length} Aufträgen
+                                    {filteredFinished.length} von {baseList.length} Aufträgen
                                 </div>
                             )}
                         </div>
@@ -1032,7 +1049,15 @@
                             {finishedEntries.length===0 ? (
                                 <div style={{ textAlign:'center', padding:'48px 0', color:'#475569' }}><div style={{fontSize:36,marginBottom:10}}>✓</div><div style={{fontSize:11,fontWeight:900,textTransform:'uppercase',letterSpacing:1}}>Keine fertig montierten Aufträge</div></div>
                             ) : filteredFinished.length===0 ? (
-                                <div style={{ textAlign:'center', padding:'48px 0', color:'#475569' }}><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:11,fontWeight:900,textTransform:'uppercase',letterSpacing:1}}>Keine Treffer für „{searchBilling}"</div></div>
+                                <div style={{ textAlign:'center', padding:'48px 0', color:'#475569' }}>
+                                    {searchBilling.trim() ? (
+                                        <><div style={{fontSize:32,marginBottom:8}}>🔍</div><div style={{fontSize:11,fontWeight:900,textTransform:'uppercase',letterSpacing:1}}>Keine Treffer für „{searchBilling}"</div></>
+                                    ) : billingView==='archiv' ? (
+                                        <><div style={{fontSize:32,marginBottom:8}}>🗄</div><div style={{fontSize:11,fontWeight:900,textTransform:'uppercase',letterSpacing:1}}>Archiv ist leer</div></>
+                                    ) : (
+                                        <><div style={{fontSize:32,marginBottom:8}}>✓</div><div style={{fontSize:11,fontWeight:900,textTransform:'uppercase',letterSpacing:1}}>Keine offenen Aufträge</div></>
+                                    )}
+                                </div>
                             ) : (
                                 <div style={{ display:'flex', flexDirection:'column', gap:8, paddingTop:8 }}>
                                     {filteredFinished.map((entry) => {
@@ -1903,6 +1928,7 @@
                     memo:entry.memo, auftragsNr:entry.auftragsNr, target:parseInt(entry.target)||0,
                     deliveryDate:entry.deliveryDate, endDate:entry.endDate||entry.deliveryDate,
                     calType:entry.calType||'montage', image:entry.image||null, colorOverride:colorOverrideVal,
+                    billingStatus:entry.billingStatus||null,
                 });
                 setEditCalEntry(null); setShowColorPicker(false);
             };
@@ -1914,6 +1940,7 @@
                 delete payload.isNew;
                 if (!payload.entryType) payload.entryType='LIEFERUNG';
                 if (!payload.endDate) payload.endDate=payload.deliveryDate;
+                if (payload.billingStatus===undefined) payload.billingStatus=null;
                 if (!payload.calType) payload.calType=activeCalType;
                 if (payload.colorOverride===undefined) payload.colorOverride=null;
                 await setDoc(doc(db,'artifacts',appId,'public','data','calentries',id), payload);
@@ -1962,6 +1989,7 @@
                         memo: entry.memo || '', auftragsNr: entry.auftragsNr || '',
                         target: parseInt(entry.target)||0, deliveryDate: entry.deliveryDate || now,
                         finishedAt: now, status: 'finished', calType: entry.calType || 'montage',
+                        billingStatus: entry.billingStatus || null,
                     });
                     // 3. Passendes objects-Dokument löschen
                     const entryAufnr = cleanAuftragsNr(entry.auftragsNr || '');
@@ -1998,6 +2026,7 @@
                     finishedAt: now,
                     status: 'finished',
                     calType: entry.calType || 'montage',
+                    billingStatus: entry.billingStatus || null,
                 });
                 // 3. Passendes objects-Dokument löschen (verschwindet aus Admin-Dashboard)
                 const entryAufnr = cleanAuftragsNr(entry.auftragsNr || '');
@@ -3110,11 +3139,11 @@
                                     <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
                                         <div>
                                             <div style={{ color:'#94a3b8', fontSize:8, fontWeight:700, textTransform:'uppercase', marginBottom:4 }}>Von (Start)</div>
-                                            <input type="date" style={{ width:'100%', padding:'9px 10px', borderRadius:8, background:'#1e293b', border:'2px solid #3b82f6', color:'#fff', fontSize:11, boxSizing:'border-box' }} value={editCalEntry.deliveryDate?.substring(0,10)||''} onChange={e=>{ if(!e.target.value) return; setEditCalEntry({...editCalEntry,deliveryDate:e.target.value,endDate:editCalEntry.endDate&&editCalEntry.endDate>=e.target.value?editCalEntry.endDate:e.target.value}); }}/>
+                                            <input type="date" style={{ width:'100%', padding:'9px 10px', borderRadius:8, background:'#1e293b', border:'2px solid #3b82f6', color:'#fff', fontSize:11, boxSizing:'border-box' }} value={editCalEntry.deliveryDate?.substring(0,10)||''} onChange={e=>setEditCalEntry({...editCalEntry,deliveryDate:e.target.value,endDate:editCalEntry.endDate&&editCalEntry.endDate>=e.target.value?editCalEntry.endDate:e.target.value})}/>
                                         </div>
                                         <div>
                                             <div style={{ color:'#94a3b8', fontSize:8, fontWeight:700, textTransform:'uppercase', marginBottom:4 }}>Bis (Ende)</div>
-                                            <input type="date" style={{ width:'100%', padding:'9px 10px', borderRadius:8, background:'#1e293b', border:'2px solid rgba(59,130,246,0.5)', color:'#fff', fontSize:11, boxSizing:'border-box' }} value={editCalEntry.endDate?.substring(0,10)||''} min={editCalEntry.deliveryDate?.substring(0,10)||''} onChange={e=>{ if(!e.target.value) return; setEditCalEntry({...editCalEntry,endDate:e.target.value}); }}/>
+                                            <input type="date" style={{ width:'100%', padding:'9px 10px', borderRadius:8, background:'#1e293b', border:'2px solid rgba(59,130,246,0.5)', color:'#fff', fontSize:11, boxSizing:'border-box' }} value={(editCalEntry.endDate||editCalEntry.deliveryDate)?.substring(0,10)||''} min={editCalEntry.deliveryDate?.substring(0,10)||''} onChange={e=>setEditCalEntry({...editCalEntry,endDate:e.target.value})}/>
                                         </div>
                                     </div>
                                     {editCalEntry.deliveryDate&&editCalEntry.endDate&&editCalEntry.endDate>editCalEntry.deliveryDate && (
@@ -3122,6 +3151,20 @@
                                             ⏱ {daysBetween(editCalEntry.deliveryDate,editCalEntry.endDate)} Tage
                                         </div>
                                     )}
+                                </div>
+                                <div style={{ background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.25)', borderRadius:12, padding:'12px 14px' }}>
+                                    <div style={{ color:'#f87171', fontSize:9, fontWeight:900, textTransform:'uppercase', letterSpacing:1, marginBottom:8 }}>💰 Abrechnen</div>
+                                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+                                        {[{key:'fehler_intern',label:'Fehler intern'},{key:'weiter_verrechnen',label:'Weiter verrechnen'}].map(opt => {
+                                            const active = editCalEntry.billingStatus===opt.key;
+                                            return (
+                                                <button key={opt.key} onClick={()=>setEditCalEntry({...editCalEntry, billingStatus: active?null:opt.key})}
+                                                    style={{ padding:'10px 8px', borderRadius:8, border:`1px solid ${active?'#ef4444':'rgba(255,255,255,0.15)'}`, background:active?'#ef4444':'#1e293b', color:active?'#fff':'#94a3b8', fontSize:10, fontWeight:900, textTransform:'uppercase', cursor:'pointer' }}>
+                                                    {opt.label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                                 <div>
                                     <button onClick={()=>setShowColorPicker(!showColorPicker)} style={{ width:'100%', padding:'10px 14px', borderRadius:10, background:showColorPicker?'rgba(99,102,241,0.25)':'rgba(99,102,241,0.12)', border:`1px solid ${showColorPicker?'rgba(99,102,241,0.7)':'rgba(99,102,241,0.3)'}`, color:'#a5b4fc', fontSize:10, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:10 }}>
