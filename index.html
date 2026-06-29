@@ -11,7 +11,7 @@
     <script src="https://unpkg.com/lucide@1.20.0"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
     
     <script type="module">
@@ -805,7 +805,7 @@
                             style: {
                                 font: { sz: 10, color: { rgb: cellTextColor }, bold: col === 'C' || col === 'D' || (isBillingCol && hasBilling), italic: isMemoCol && hasMemo },
                                 fill: { fgColor: { rgb: cellFill } },
-                                alignment: { vertical: 'center', wrapText: isMemoCol },
+                                alignment: { vertical: 'center', wrapText: isMemoCol, ...(isBillingCol && hasBilling ? { horizontal:'center' } : {}) },
                                 border: { bottom: { style: 'hair', color: { rgb: isAbgerechnet ? 'BBE5CC' : 'E2E8F0' } } },
                             },
                         });
