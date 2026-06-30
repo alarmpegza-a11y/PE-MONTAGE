@@ -1802,9 +1802,24 @@
                         setShowCalAdminPin(false); setCalAdminPin('');
                     }
                 };
-                window.addEventListener('keydown', onKey);
-                return () => window.removeEventListener('keydown', onKey);
-            }, [showCalAdminPin, calAdminPin]);
+                document.addEventListener('keydown', onKey, true);
+                return () => document.removeEventListener('keydown', onKey, true);
+            }, [showCalAdminPin]);
+
+            // ESC schliesst offene Fenster (Auftragsfenster, Ferien, Verschieben, Suche)
+            useEffect(() => {
+                const onEsc = (e) => {
+                    if (e.key !== 'Escape') return;
+                    if (showCalAdminPin) return; // PIN-Fenster hat eigene ESC-Behandlung
+                    if (showFerienModal) { setShowFerienModal(false); return; }
+                    if (showColorPicker) { setShowColorPicker(false); return; }
+                    if (editCalEntry) { setEditCalEntry(null); setShowColorPicker(false); return; }
+                    if (verschiebenEntry) { setVerschiebenEntry(null); return; }
+                    if (showGlobalSearch) { setShowGlobalSearch(false); return; }
+                };
+                document.addEventListener('keydown', onEsc, true);
+                return () => document.removeEventListener('keydown', onEsc, true);
+            }, [showCalAdminPin, showFerienModal, showColorPicker, editCalEntry, verschiebenEntry, showGlobalSearch]);
 
             // Monteur-Liste (Gesamtbestand) und Ferien live aus Firestore laden
             useEffect(() => {
@@ -1930,6 +1945,22 @@
                     calType:entry.calType||'montage', image:entry.image||null, colorOverride:colorOverrideVal,
                     billingStatus:entry.billingStatus||null,
                 });
+                // Memo-Änderung auch ins Admin-Dashboard (objects) übernehmen
+                try {
+                    const entryAufnr = cleanAuftragsNr(entry.auftragsNr||'');
+                    const entryAddr = (entry.address||'').trim().toLowerCase();
+                    const matchObj = (objects||[]).find(o => {
+                        if (o.id === `obj-${entry.id}` || o.calEntryId === entry.id) return true;
+                        const oAufnr = cleanAuftragsNr(o.auftragsNr||'');
+                        const oAddr = (o.address||'').trim().toLowerCase();
+                        return (entryAufnr && oAufnr && entryAufnr===oAufnr) || (entryAddr && oAddr && entryAddr===oAddr);
+                    });
+                    if (matchObj) {
+                        await updateDoc(doc(db,'artifacts',appId,'public','data','objects',matchObj.id), {
+                            memo: entry.memo||'', houseInfo: entry.memo||'Gesamtmontage',
+                        });
+                    }
+                } catch(err) {}
                 setEditCalEntry(null); setShowColorPicker(false);
             };
 
@@ -3116,7 +3147,7 @@
 
                     {/* ── EDIT MODAL ── */}
                     {editCalEntry && (
-                        <div style={{ position:'fixed', inset:0, zIndex:50, background:'rgba(15,23,42,0.96)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:16, overflowY:'auto' }}>
+                        <div tabIndex={-1} onKeyDown={(e)=>{ if(e.key==='Escape'){ e.stopPropagation(); setEditCalEntry(null); setShowColorPicker(false); } }} style={{ position:'fixed', inset:0, zIndex:50, background:'rgba(15,23,42,0.96)', display:'flex', alignItems:'flex-start', justifyContent:'center', padding:16, overflowY:'auto', outline:'none' }}>
                             <div style={{ width:'100%', maxWidth:460, background:'rgba(51,65,85,0.98)', backdropFilter:'blur(12px)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:24, padding:24, display:'flex', flexDirection:'column', gap:12, marginTop:8, marginBottom:16 }}>
                                 <h3 style={{ color:'#fff', fontSize:11, fontWeight:900, textTransform:'uppercase', fontStyle:'italic', margin:0 }}>{editCalEntry.isNew?'Neuer Eintrag':'Auftrag bearbeiten'}</h3>
                                 {!editCalEntry.isNew && <button onClick={()=>triggerEntryPDF(editCalEntry)} style={{ alignSelf:'flex-start', background:'#3b82f6', border:'none', borderRadius:8, padding:'6px 12px', color:'#fff', fontSize:9, fontWeight:900, textTransform:'uppercase', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}><Icon name="download" size={12}/>PDF exportieren</button>}
@@ -3422,8 +3453,8 @@
                     if (e.key >= '0' && e.key <= '9') handleLogin(e.key);
                     else if (e.key === 'Backspace') setPin(p => p.slice(0,-1));
                 };
-                window.addEventListener('keydown', onKey);
-                return () => window.removeEventListener('keydown', onKey);
+                document.addEventListener('keydown', onKey, true);
+                return () => document.removeEventListener('keydown', onKey, true);
             }, [view, pin]);
 
             const processTextImport = async () => {
@@ -3505,6 +3536,21 @@
                 const { db, doc, updateDoc } = window.FirebaseSDK;
                 await updateDoc(doc(db,'artifacts',appId,'public','data','objects',editObject.id), {address:editObject.address,customer:editObject.customer,houseInfo:editObject.houseInfo,target:parseInt(editObject.target)||0,name:editObject.address});
                 setEditObject(null);
+            };
+
+            // Memo bevorzugt direkt vom verknüpften Kalendereintrag (Live-Sync mit Wochenkalender)
+            const objMemo = (obj) => {
+                const oAufnr = cleanAuftragsNr(obj.auftragsNr || '');
+                const oAddr = (obj.address || '').trim().toLowerCase();
+                const cal = (calEntries||[]).find(e => {
+                    if (obj.calEntryId && e.id === obj.calEntryId) return true;
+                    if (obj.id === `obj-${e.id}`) return true;
+                    const cAufnr = cleanAuftragsNr(e.auftragsNr || '');
+                    const cAddr = (e.address || '').trim().toLowerCase();
+                    return (oAufnr && cAufnr && oAufnr === cAufnr) || (oAddr && cAddr && oAddr === cAddr);
+                });
+                if (cal && (cal.memo||'').trim()) return cal.memo;
+                return obj.memo || obj.houseInfo || '';
             };
 
             const deleteObject = async (e, objId) => {
@@ -3832,10 +3878,10 @@
                                         </div>
                                         <p className="text-[10px] font-bold text-blue-300 mb-2 uppercase">{obj.customer}</p>
                                         {/* Memo prominent anzeigen */}
-                                        {(obj.memo||obj.houseInfo) && (
+                                        {objMemo(obj) && (
                                             <div style={{background:'rgba(245,158,11,0.1)',border:'1px solid rgba(245,158,11,0.3)',borderLeft:'3px solid #f59e0b',borderRadius:6,padding:'5px 10px',marginBottom:8}}>
                                                 <span style={{fontSize:7,color:'#f59e0b',fontWeight:900,textTransform:'uppercase',letterSpacing:1}}>📝 Memo </span>
-                                                <span style={{fontSize:10,color:'#fde68a',fontWeight:800}}>{obj.memo||obj.houseInfo}</span>
+                                                <span style={{fontSize:10,color:'#fde68a',fontWeight:800}}>{objMemo(obj)}</span>
                                             </div>
                                         )}
                                         {obj.status==='blocked'&&obj.blockReason && (
@@ -3960,10 +4006,10 @@
                                             </div>
                                         )}
                                         {/* Memo prominent */}
-                                        {(obj.memo||obj.houseInfo) && (
+                                        {objMemo(obj) && (
                                             <div style={{background:'rgba(245,158,11,0.12)',border:'1px solid rgba(245,158,11,0.3)',borderLeft:'3px solid #f59e0b',borderRadius:5,padding:'4px 8px'}}>
                                                 <span style={{fontSize:8,color:'#f59e0b',fontWeight:900,textTransform:'uppercase'}}>📝 </span>
-                                                <span style={{fontSize:10,color:'#fde68a',fontWeight:800}}>{obj.memo||obj.houseInfo}</span>
+                                                <span style={{fontSize:10,color:'#fde68a',fontWeight:800}}>{objMemo(obj)}</span>
                                             </div>
                                         )}
                                     </div>
@@ -4015,12 +4061,12 @@
                         </div>
                     </header>
                     {/* Memo Banner — gross und deutlich für den Monteur */}
-                    {(selectedObject?.memo||selectedObject?.houseInfo) && (
+                    {selectedObject && objMemo(selectedObject) && (
                         <div style={{background:'rgba(245,158,11,0.15)',borderBottom:'2px solid rgba(245,158,11,0.4)',padding:'10px 20px',display:'flex',alignItems:'flex-start',gap:8}}>
                             <span style={{fontSize:18,flexShrink:0}}>📝</span>
                             <div>
                                 <div style={{fontSize:8,color:'#f59e0b',fontWeight:900,textTransform:'uppercase',letterSpacing:1,marginBottom:2}}>Wichtige Hausinfo / Memo</div>
-                                <div style={{fontSize:13,color:'#fde68a',fontWeight:900,lineHeight:1.4}}>{selectedObject.memo||selectedObject.houseInfo}</div>
+                                <div style={{fontSize:13,color:'#fde68a',fontWeight:900,lineHeight:1.4}}>{objMemo(selectedObject)}</div>
                             </div>
                         </div>
                     )}
