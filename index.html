@@ -1900,20 +1900,14 @@
                 const { db, doc, deleteDoc } = window.FirebaseSDK;
                 // Delete the calendar entry
                 await deleteDoc(doc(db,'artifacts',appId,'public','data','calentries',id));
-                // Also delete matching object(s) from the Dashboard (objects collection)
-                // Match by auftragsNr (cleaned) or by address
-                const calEntry = calEntries.find(e => e.id === id);
-                if (calEntry && objects && objects.length > 0) {
-                    const calAufnr = cleanAuftragsNr(calEntry.auftragsNr || '');
-                    const calAddr = (calEntry.address || '').trim().toLowerCase();
-                    for (const obj of objects) {
-                        const objAufnr = cleanAuftragsNr(obj.auftragsNr || '');
-                        const objAddr = (obj.address || '').trim().toLowerCase();
-                        const matchByAufnr = calAufnr && objAufnr && calAufnr === objAufnr;
-                        const matchByAddr = calAddr && objAddr && calAddr === objAddr;
-                        if (matchByAufnr || matchByAddr) {
-                            await deleteDoc(doc(db,'artifacts',appId,'public','data','objects',obj.id));
-                        }
+                // Nur das DIREKT verknüpfte object löschen (via calEntryId oder obj-{id})
+                // NICHT per Adresse/AuftragsNr matchen — sonst werden Kopien auch gelöscht!
+                if (objects && objects.length > 0) {
+                    const directObj = objects.find(o =>
+                        o.calEntryId === id || o.id === ('obj-' + id)
+                    );
+                    if (directObj) {
+                        await deleteDoc(doc(db,'artifacts',appId,'public','data','objects',directObj.id));
                     }
                 }
             };
@@ -1945,16 +1939,11 @@
                     calType:entry.calType||'montage', image:entry.image||null, colorOverride:colorOverrideVal,
                     billingStatus:entry.billingStatus||null,
                 });
-                // Memo-Änderung auch ins Admin-Dashboard (objects) übernehmen
+                // Memo-Änderung auch ins Admin-Dashboard — NUR via direkte ID-Verknüpfung
                 try {
-                    const entryAufnr = cleanAuftragsNr(entry.auftragsNr||'');
-                    const entryAddr = (entry.address||'').trim().toLowerCase();
-                    const matchObj = (objects||[]).find(o => {
-                        if (o.id === `obj-${entry.id}` || o.calEntryId === entry.id) return true;
-                        const oAufnr = cleanAuftragsNr(o.auftragsNr||'');
-                        const oAddr = (o.address||'').trim().toLowerCase();
-                        return (entryAufnr && oAufnr && entryAufnr===oAufnr) || (entryAddr && oAddr && entryAddr===oAddr);
-                    });
+                    const matchObj = (objects||[]).find(o =>
+                        o.id === ('obj-' + entry.id) || o.calEntryId === entry.id
+                    );
                     if (matchObj) {
                         await updateDoc(doc(db,'artifacts',appId,'public','data','objects',matchObj.id), {
                             memo: entry.memo||'', houseInfo: entry.memo||'Gesamtmontage',
@@ -2318,8 +2307,25 @@
                 if (!copyEntry) return;
                 const { db, doc, setDoc } = window.FirebaseSDK;
                 const id = `cal-${crypto.randomUUID()}`;
-                const newEntry = {...copyEntry,id,deliveryDate:dayStr,endDate:dayStr,createdAt:new Date().toISOString()};
+                const newEntry = {...copyEntry,id,deliveryDate:dayStr,endDate:dayStr,createdAt:new Date().toISOString(),workerStatus:null,workerBlockReason:null,workerRemaining:null,doneAt:null};
                 await setDoc(doc(db,'artifacts',appId,'public','data','calentries',id),newEntry);
+                // Auch neues objects-Dokument anlegen mit aktueller Memo
+                const objId = `obj-${id}`;
+                const eleMatch = (copyEntry.memo||'').match(/(\d+)\s*ELE/i);
+                const target = eleMatch ? parseInt(eleMatch[1]) : (parseInt(copyEntry.target)||1);
+                await setDoc(doc(db,'artifacts',appId,'public','data','objects',objId), {
+                    id: objId, calEntryId: id,
+                    name: copyEntry.address||copyEntry.customer,
+                    customer: copyEntry.customer||'',
+                    address: copyEntry.address||'',
+                    houseInfo: copyEntry.memo||'Gesamtmontage',
+                    memo: copyEntry.memo||'',
+                    auftragsNr: copyEntry.auftragsNr||'',
+                    target, current: 0,
+                    lastRemaining: null, blockReason: null,
+                    deliveryDate: dayStr,
+                    status: 'active', history: [],
+                });
                 setCopyEntry(null);
             };
 
@@ -2358,7 +2364,7 @@
                 return (
                     <div
                         className={`cal-card-new${deleteMode?' delete-mode-card':''}${isHighlighted?' search-highlight':''}${multiSelectMode&&multiSelected.has(e.id)?' search-highlight':''}`}
-                        style={{ background: e.doneAt ? '#dcfce7' : bg, borderLeftColor: e.doneAt ? '#16a34a' : (multiSelectMode&&multiSelected.has(e.id)?'#10b981':border), borderTopColor: (e.doneAt ? '#16a34a' : border)+'44', borderRightColor: (e.doneAt ? '#16a34a' : border)+'33', borderBottomColor: (e.doneAt ? '#16a34a' : border)+'33', color: e.doneAt ? '#14532d' : textCol, opacity: e.doneAt ? 0.88 : 1, outline: multiSelectMode&&multiSelected.has(e.id)?'2px solid #10b981':'none' }}
+                        style={{ background: e.doneAt ? '#dcfce7' : (e.workerStatus==='blocked'?'#fee2e2':e.workerStatus==='partial'?'#fef9c3':bg), borderLeftColor: e.doneAt ? '#16a34a' : e.workerStatus==='blocked' ? '#ef4444' : e.workerStatus==='partial' ? '#f59e0b' : (multiSelectMode&&multiSelected.has(e.id)?'#10b981':border), borderTopColor: (e.doneAt ? '#16a34a' : border)+'44', borderRightColor: (e.doneAt ? '#16a34a' : border)+'33', borderBottomColor: (e.doneAt ? '#16a34a' : border)+'33', color: e.doneAt ? '#14532d' : textCol, opacity: e.doneAt ? 0.88 : 1, outline: multiSelectMode&&multiSelected.has(e.id)?'2px solid #10b981':'none' }}
                         onClick={(ev) => {
                             ev.stopPropagation();
                             if (deleteMode) { if(confirm(`"${e.customer}" löschen?`)) deleteCalEntry(e.id); }
@@ -2378,6 +2384,12 @@
                             <div className="cal-card-dashboard-dot" title="Im Admin Dashboard verknüpft"></div>
                         )}
                         {e.doneAt && !deleteMode && !multiSelectMode && <div className="erledigt-stamp">✓ Erledigt</div>}
+                        {!e.doneAt && e.workerStatus==='blocked' && !deleteMode && !multiSelectMode && (
+                            <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%) rotate(-18deg)', border:'2.5px solid rgba(239,68,68,0.9)', borderRadius:5, padding:'3px 10px', background:'rgba(239,68,68,0.12)', color:'#dc2626', fontSize:9, fontWeight:900, letterSpacing:2, textTransform:'uppercase', pointerEvents:'none', whiteSpace:'nowrap', zIndex:10 }}>🚧 Blockiert</div>
+                        )}
+                        {!e.doneAt && e.workerStatus==='partial' && !deleteMode && !multiSelectMode && (
+                            <div style={{ position:'absolute', top:'50%', left:'50%', transform:'translate(-50%,-50%) rotate(-18deg)', border:'2.5px solid rgba(245,158,11,0.9)', borderRadius:5, padding:'3px 10px', background:'rgba(245,158,11,0.12)', color:'#d97706', fontSize:9, fontWeight:900, letterSpacing:2, textTransform:'uppercase', pointerEvents:'none', whiteSpace:'nowrap', zIndex:10 }}>⚠ Teilweise</div>
+                        )}
                         {deleteMode && <div className="delete-overlay-x">✕</div>}
                         {multiSelectMode && (
                             <div style={{ position:'absolute', top:4, left:4, width:16, height:16, borderRadius:4, background: multiSelected.has(e.id)?'#10b981':'rgba(255,255,255,0.7)', border:`2px solid ${multiSelected.has(e.id)?'#059669':'#94a3b8'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:9, fontWeight:900, color:'#fff', zIndex:5 }}>
@@ -2408,6 +2420,18 @@
                         {e.doneAt && !deleteMode && (
                             <div className="cal-card-erledigt-banner">
                                 ✓ Fertig montiert · {new Date(e.doneAt).toLocaleDateString('de-DE')}
+                            </div>
+                        )}
+                        {!e.doneAt && e.workerStatus==='blocked' && !deleteMode && (
+                            <div style={{ marginTop:3, padding:'3px 7px', borderRadius:'0 4px 4px 0', borderLeft:'2px solid #ef4444', background:'rgba(239,68,68,0.1)', fontSize:8, fontWeight:800, color:'#dc2626', lineHeight:1.3 }}>
+                                <span style={{ fontSize:6.5, fontWeight:900, textTransform:'uppercase', letterSpacing:0.8, display:'block', marginBottom:1, opacity:0.7 }}>🚧 Blockiert-Grund</span>
+                                {e.workerBlockReason || 'Kein Grund angegeben'}
+                            </div>
+                        )}
+                        {!e.doneAt && e.workerStatus==='partial' && !deleteMode && (
+                            <div style={{ marginTop:3, padding:'3px 7px', borderRadius:'0 4px 4px 0', borderLeft:'2px solid #f59e0b', background:'rgba(245,158,11,0.1)', fontSize:8, fontWeight:800, color:'#d97706', lineHeight:1.3 }}>
+                                <span style={{ fontSize:6.5, fontWeight:900, textTransform:'uppercase', letterSpacing:0.8, display:'block', marginBottom:1, opacity:0.7 }}>⚠ Noch offen</span>
+                                {e.workerRemaining > 0 ? e.workerRemaining + ' ELE verbleibend' : 'Teilweise erledigt'}
                             </div>
                         )}
                         {!deleteMode && !copyEntry && !multiSelectMode && calAdminUnlocked && (
@@ -3369,6 +3393,43 @@
                             }, 3000); // 3s Delay damit Snapshots zuerst laden
                             // ═══════════════════════════════════════════════════════════
 
+                            // ═══ EINMALIGER SYNC: blockierte objects → calentries ═══
+                            setTimeout(async () => {
+                                try {
+                                    const { getDocs, collection: colB, updateDoc, doc: docB } = window.FirebaseSDK;
+                                    const [objSnap, calSnap] = await Promise.all([
+                                        getDocs(colB(db,'artifacts',appId,'public','data','objects')),
+                                        getDocs(colB(db,'artifacts',appId,'public','data','calentries')),
+                                    ]);
+                                    const allObj = objSnap.docs.map(d=>({id:d.id,...d.data()}));
+                                    const allCal = calSnap.docs.map(d=>({id:d.id,...d.data()}));
+                                    let synced = 0;
+                                    for (const obj of allObj) {
+                                        if (obj.status !== 'blocked') continue;
+                                        const objAufnr = (obj.auftragsNr||'').trim();
+                                        const objAddr = (obj.address||'').trim().toLowerCase();
+                                        const cal = allCal.find(c => {
+                                            if (obj.calEntryId && c.id === obj.calEntryId) return true;
+                                            if (obj.id === ('obj-' + c.id)) return true;
+                                            const cAufnr = (c.auftragsNr||'').trim();
+                                            const cAddr = (c.address||'').trim().toLowerCase();
+                                            if (objAufnr && cAufnr && objAufnr === cAufnr) return true;
+                                            if (objAddr && cAddr && objAddr === cAddr) return true;
+                                            return false;
+                                        });
+                                        if (cal && cal.workerStatus !== 'blocked') {
+                                            await updateDoc(docB(db,'artifacts',appId,'public','data','calentries',cal.id), {
+                                                workerStatus: 'blocked',
+                                                workerBlockReason: obj.blockReason || '',
+                                            });
+                                            synced++;
+                                        }
+                                    }
+                                    if (synced > 0) console.log('[BlockSync] ' + synced + ' blockierte calentries synchronisiert.');
+                                } catch(err) { console.warn('[BlockSync Fehler]', err); }
+                            }, 5000);
+                            // ═══════════════════════════════════════════════════════════
+
                             // ═══ EINMALIGE WIEDERHERSTELLUNG — NUR MARKIEREN, NIE LÖSCHEN ═══
                             if (!localStorage.getItem('restore_erledigt_v1')) {
                                 (async () => {
@@ -3522,9 +3583,31 @@
                         }
                     } else {
                         let updates = {history:[{date:now,mode:workerStatusMode,detail:workerStatusMode==='blocked'?workerBlockReason:workerRemaining},...(obj.history||[])]};
-                        if (workerStatusMode==='blocked') updates={...updates,status:'blocked',blockReason:workerBlockReason,lastRemaining:obj.lastRemaining??null};
+                        if (workerStatusMode==='blocked') updates={...updates,status:'blocked',blockReason:workerBlockReason,lastRemaining:obj.lastRemaining!=null?obj.lastRemaining:null};
                         else if (workerStatusMode==='partial') { const open=parseInt(workerRemaining)||0; updates={...updates,current:Math.max(0,obj.target-open),status:'active',lastRemaining:open,blockReason:null}; }
                         await updateDoc(doc(db,'artifacts',appId,'public','data','objects',obj.id),updates);
+                        // Passendes calentry mit Monteur-Status updaten → sichtbar im Wochenkalender
+                        const objAufnr2 = cleanAuftragsNr(obj.auftragsNr || '');
+                        const objAddr2 = (obj.address || '').trim().toLowerCase();
+                        const matchingCal2 = calEntries.find(e => {
+                            if (obj.calEntryId && e.id === obj.calEntryId) return true;
+                            if (obj.id === ('obj-' + e.id)) return true;
+                            const calAufnr = cleanAuftragsNr(e.auftragsNr || '');
+                            const calAddr = (e.address || '').trim().toLowerCase();
+                            return (objAufnr2 && calAufnr && objAufnr2 === calAufnr) || (objAddr2 && calAddr && objAddr2 === calAddr);
+                        });
+                        if (matchingCal2) {
+                            const calUpdate = { workerStatus: workerStatusMode };
+                            if (workerStatusMode === 'blocked') {
+                                calUpdate.workerBlockReason = workerBlockReason;
+                                calUpdate.workerBlockedAt = now;
+                            } else if (workerStatusMode === 'partial') {
+                                calUpdate.workerRemaining = parseInt(workerRemaining)||0;
+                                calUpdate.workerPartialAt = now;
+                                calUpdate.workerBlockReason = null;
+                            }
+                            await updateDoc(doc(db,'artifacts',appId,'public','data','calentries',matchingCal2.id), calUpdate);
+                        }
                     }
                 }
                 setWorkerStatusMode(''); setWorkerRemaining(''); setWorkerBlockReason(''); setWorkerHours('');
@@ -3540,14 +3623,11 @@
 
             // Memo bevorzugt direkt vom verknüpften Kalendereintrag (Live-Sync mit Wochenkalender)
             const objMemo = (obj) => {
-                const oAufnr = cleanAuftragsNr(obj.auftragsNr || '');
-                const oAddr = (obj.address || '').trim().toLowerCase();
+                // Nur direkte ID-Verknüpfung — KEIN Adress-Match (sonst falsche Memo bei Kopien)
                 const cal = (calEntries||[]).find(e => {
                     if (obj.calEntryId && e.id === obj.calEntryId) return true;
-                    if (obj.id === `obj-${e.id}`) return true;
-                    const cAufnr = cleanAuftragsNr(e.auftragsNr || '');
-                    const cAddr = (e.address || '').trim().toLowerCase();
-                    return (oAufnr && cAufnr && oAufnr === cAufnr) || (oAddr && cAddr && oAddr === cAddr);
+                    if (obj.id === ('obj-' + e.id)) return true;
+                    return false;
                 });
                 if (cal && (cal.memo||'').trim()) return cal.memo;
                 return obj.memo || obj.houseInfo || '';
@@ -3562,8 +3642,41 @@
 
             const unblockObject = async (e, obj) => {
                 e.stopPropagation();
-                const { db, doc, updateDoc } = window.FirebaseSDK;
-                await updateDoc(doc(db,'artifacts',appId,'public','data','objects',obj.id), {status:'active',blockReason:null});
+                const { db, doc, updateDoc, getDocs, collection } = window.FirebaseSDK;
+                // 1. Object freigeben
+                await updateDoc(doc(db,'artifacts',appId,'public','data','objects',obj.id), {
+                    status:'active', blockReason:null
+                });
+                // 2. ALLE passenden calentries direkt aus Firebase holen und freigeben
+                // (nicht vom React-State abhängen — der könnte veraltet sein)
+                try {
+                    const objAufnr = cleanAuftragsNr(obj.auftragsNr || '');
+                    const objAddr = (obj.address || '').trim().toLowerCase();
+                    const snap = await getDocs(collection(db,'artifacts',appId,'public','data','calentries'));
+                    for (const d of snap.docs) {
+                        const ce = d.data();
+                        const ceId = d.id;
+                        let match = false;
+                        if (obj.calEntryId && ceId === obj.calEntryId) match = true;
+                        if (obj.id === ('obj-' + ceId)) match = true;
+                        if (!match && objAufnr) {
+                            const ceAufnr = cleanAuftragsNr(ce.auftragsNr || '');
+                            if (ceAufnr && objAufnr === ceAufnr) match = true;
+                        }
+                        if (!match && objAddr) {
+                            const ceAddr = (ce.address || '').trim().toLowerCase();
+                            if (ceAddr && objAddr === ceAddr) match = true;
+                        }
+                        if (match) {
+                            await updateDoc(doc(db,'artifacts',appId,'public','data','calentries',ceId), {
+                                workerStatus: null,
+                                workerBlockReason: null,
+                                workerBlockedAt: null,
+                                workerRemaining: null,
+                            });
+                        }
+                    }
+                } catch(err) { console.warn('unblock calentry error:', err); }
             };
 
             const deleteHourEntry = async (logId) => {
